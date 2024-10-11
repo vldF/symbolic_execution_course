@@ -7,13 +7,13 @@ import (
 )
 
 func solve() {
-	//solveIntegerOperations()
-	//solveFloatOperations()
-	//solveMixedOperations()
-	//solveNestedConditions()
-	//solveBitwiseOperations()
-	//solveAdvancedBitwise()
-	//solveCombinedBitwise()
+	solveIntegerOperations()
+	solveFloatOperations()
+	solveMixedOperations()
+	solveNestedConditions()
+	solveBitwiseOperations()
+	solveAdvancedBitwise()
+	solveCombinedBitwise()
 	solveNestedBitwise()
 }
 
