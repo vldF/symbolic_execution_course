@@ -1,9 +1,5 @@
 package main
 
-import (
-	"fmt"
-)
-
 func basicComplexOperations(a complex128, b complex128) complex128 {
 	if real(a) > real(b) {
 		return a + b
@@ -42,15 +38,15 @@ func complexOperations(a complex128, b complex128) complex128 {
 }
 
 func nestedComplexOperations(a complex128, b complex128) complex128 {
-    if real(a) < 0 {
-        if imag(a) < 0 {
-            return a * b
-        }
-        return a + b
-    }
+	if real(a) < 0 {
+		if imag(a) < 0 {
+			return a * b
+		}
+		return a + b
+	}
 
-    if imag(b) < 0 {
-        return a - b
-    }
-    return a + b
+	if imag(b) < 0 {
+		return a - b
+	}
+	return a + b
 }

@@ -6,7 +6,7 @@ import (
 	"github.com/vldF/symbolic_execution_course/constraints/smt"
 )
 
-func solve() {
+func solveNumbers() {
 	solveIntegerOperations()
 	solveFloatOperations()
 	solveMixedOperations()

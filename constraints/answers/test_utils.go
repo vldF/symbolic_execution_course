@@ -44,6 +44,7 @@ func runForCase(function Z3AwareFunction) {
 
 	fmt.Println("is satisfied: ", check)
 	if !check {
+		panic("can't satisfy model for: " + caseName)
 		return
 	}
 
