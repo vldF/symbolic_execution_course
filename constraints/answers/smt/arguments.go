@@ -17,12 +17,13 @@ func (sCtx *SymContext) NewIntArgument(name string) z3.Int {
 	return result
 }
 
-func (sCtx *SymContext) NewFloat64Argument(name string) z3.Real {
-	result := sCtx.Ctx.RealConst(name)
+func (sCtx *SymContext) NewFloat64Argument(name string) z3.Float {
+	float := sCtx.Ctx.FloatSort(11, 53)
+	result := sCtx.Ctx.Const(name, float).(z3.Float)
 
 	typesCtx := sCtx.TypesCtx
-	minValueConst := sCtx.Ctx.FromFloat64(typesCtx.MinFloat64, sCtx.Ctx.FloatSort(11, 53)).ToReal()
-	maxValueConst := sCtx.Ctx.FromFloat64(typesCtx.MaxFloat64, sCtx.Ctx.FloatSort(11, 53)).ToReal()
+	minValueConst := sCtx.Ctx.FromFloat64(typesCtx.MinFloat64, sCtx.Ctx.FloatSort(11, 53))
+	maxValueConst := sCtx.Ctx.FromFloat64(typesCtx.MaxFloat64, sCtx.Ctx.FloatSort(11, 53))
 
 	// int max and int min are intentionally excluded
 	sCtx.Solver.Assert(result.GT(minValueConst).And(result.LT(maxValueConst)))

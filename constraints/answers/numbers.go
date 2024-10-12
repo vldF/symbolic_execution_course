@@ -155,9 +155,9 @@ func mixedOperations13(sCtx *smt.SymContext) string {
 	twoIntConst := sCtx.Ctx.FromInt(2, sCtx.Ctx.IntSort()).(z3.Int)
 	sCtx.Solver.Assert(argA.Mod(twoIntConst).Eq(zeroIntConst))
 
-	argAReal := argA.ToReal()
-	result := argAReal.Add(argB)
-	tenRealConst := sCtx.Ctx.FromFloat64(10.0, sCtx.Ctx.FloatSort(11, 53)).ToReal()
+	floatSort := sCtx.Ctx.FloatSort(11, 53)
+	result := argA.ToReal().ToFloat(floatSort).Add(argB)
+	tenRealConst := sCtx.Ctx.FromFloat64(10.0, sCtx.Ctx.FloatSort(11, 53))
 	sCtx.Solver.Assert(result.LT(tenRealConst))
 
 	return "a%2 == 0 && result < 10"
@@ -171,9 +171,9 @@ func mixedOperations14(sCtx *smt.SymContext) string {
 	twoIntConst := sCtx.Ctx.FromInt(2, sCtx.Ctx.IntSort()).(z3.Int)
 	sCtx.Solver.Assert(argA.Mod(twoIntConst).Eq(zeroIntConst))
 
-	argAReal := argA.ToReal()
-	result := argAReal.Add(argB)
-	tenRealConst := sCtx.Ctx.FromFloat64(10.0, sCtx.Ctx.FloatSort(11, 53)).ToReal()
+	floatSort := sCtx.Ctx.FloatSort(11, 53)
+	result := argA.ToReal().ToFloat(floatSort).Add(argB)
+	tenRealConst := sCtx.Ctx.FromFloat64(10.0, sCtx.Ctx.FloatSort(11, 53))
 	sCtx.Solver.Assert(result.LT(tenRealConst).Not())
 
 	return "a%2 == 0 && !(result < 10)"
@@ -187,9 +187,9 @@ func mixedOperations23(sCtx *smt.SymContext) string {
 	twoIntConst := sCtx.Ctx.FromInt(2, sCtx.Ctx.IntSort()).(z3.Int)
 	sCtx.Solver.Assert(argA.Mod(twoIntConst).Eq(zeroIntConst).Not())
 
-	argAReal := argA.ToReal()
-	result := argAReal.Sub(argB)
-	tenRealConst := sCtx.Ctx.FromFloat64(10.0, sCtx.Ctx.FloatSort(11, 53)).ToReal()
+	floatSort := sCtx.Ctx.FloatSort(11, 53)
+	result := argA.ToReal().ToFloat(floatSort).Sub(argB)
+	tenRealConst := sCtx.Ctx.FromFloat64(10.0, sCtx.Ctx.FloatSort(11, 53))
 	sCtx.Solver.Assert(result.LT(tenRealConst))
 
 	return "!(a%2 == 0) && result < 10"
@@ -203,9 +203,9 @@ func mixedOperations24(sCtx *smt.SymContext) string {
 	twoIntConst := sCtx.Ctx.FromInt(2, sCtx.Ctx.IntSort()).(z3.Int)
 	sCtx.Solver.Assert(argA.Mod(twoIntConst).Eq(zeroIntConst).Not())
 
-	argAReal := argA.ToReal()
-	result := argAReal.Sub(argB)
-	tenRealConst := sCtx.Ctx.FromFloat64(10.0, sCtx.Ctx.FloatSort(11, 53)).ToReal()
+	floatSort := sCtx.Ctx.FloatSort(11, 53)
+	result := argA.ToReal().ToFloat(floatSort).Sub(argB)
+	tenRealConst := sCtx.Ctx.FromFloat64(10.0, sCtx.Ctx.FloatSort(11, 53))
 	sCtx.Solver.Assert(result.LT(tenRealConst).Not())
 
 	return "!(a%2 == 0) && !(result < 10)"
@@ -233,7 +233,7 @@ func nestedConditions1(sCtx *smt.SymContext) string {
 	argB := sCtx.NewFloat64Argument("b")
 
 	zeroIntConst := sCtx.Ctx.FromInt(0, sCtx.Ctx.IntSort()).(z3.Int)
-	zeroRealConst := sCtx.Ctx.FromFloat64(0.0, sCtx.Ctx.FloatSort(11, 53)).ToReal()
+	zeroRealConst := sCtx.Ctx.FromFloat64(0.0, sCtx.Ctx.FloatSort(11, 53))
 	sCtx.Solver.Assert(argA.LT(zeroIntConst))
 	sCtx.Solver.Assert(argB.LT(zeroRealConst))
 
@@ -245,7 +245,7 @@ func nestedConditions2(sCtx *smt.SymContext) string {
 	argB := sCtx.NewFloat64Argument("b")
 
 	zeroIntConst := sCtx.Ctx.FromInt(0, sCtx.Ctx.IntSort()).(z3.Int)
-	zeroRealConst := sCtx.Ctx.FromFloat64(0.0, sCtx.Ctx.FloatSort(11, 53)).ToReal()
+	zeroRealConst := sCtx.Ctx.FromFloat64(0.0, sCtx.Ctx.FloatSort(11, 53))
 	sCtx.Solver.Assert(argA.LT(zeroIntConst))
 	sCtx.Solver.Assert(argB.LT(zeroRealConst).Not())
 
