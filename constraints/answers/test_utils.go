@@ -11,24 +11,8 @@ import (
 type Z3AwareFunction func(sCtx *smt.SymContext) string
 
 func runForCase(function Z3AwareFunction) {
-	config := z3.Config{}
-	ctx := z3.NewContext(&config)
-	solver := z3.NewSolver(ctx)
-
-	typesCtx := smt.TypesContext{
-		MaxInt:      math.MaxInt32,
-		MinInt:      math.MinInt32,
-		IntSize:     bits.UintSize,
-		MaxFloat64:  math.MaxFloat64,
-		MinFloat64:  -math.MaxFloat64,
-		Float64Size: 64,
-	}
-
-	sCtx := smt.SymContext{
-		Solver:   solver,
-		Ctx:      ctx,
-		TypesCtx: typesCtx,
-	}
+	sCtx := CreateSymContext()
+	solver := sCtx.Solver
 
 	caseName := function(&sCtx)
 	fmt.Println("===================")
@@ -49,4 +33,26 @@ func runForCase(function Z3AwareFunction) {
 	}
 
 	fmt.Println(solver.Model().String())
+}
+
+func CreateSymContext() smt.SymContext {
+	config := z3.Config{}
+	ctx := z3.NewContext(&config)
+	solver := z3.NewSolver(ctx)
+
+	typesCtx := smt.TypesContext{
+		MaxInt:      math.MaxInt32,
+		MinInt:      math.MinInt32,
+		IntSize:     bits.UintSize,
+		MaxFloat64:  math.MaxFloat64,
+		MinFloat64:  -math.MaxFloat64,
+		Float64Size: 64,
+	}
+
+	sCtx := smt.SymContext{
+		Solver:   solver,
+		Ctx:      ctx,
+		TypesCtx: typesCtx,
+	}
+	return sCtx
 }
