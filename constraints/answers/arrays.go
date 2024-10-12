@@ -7,7 +7,7 @@ import (
 )
 
 func solveArrays() {
-	//solveCompareElements()
+	solveCompareElements()
 	solveCompareAges()
 }
 
