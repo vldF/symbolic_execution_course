@@ -281,10 +281,11 @@ func bitwiseOperations1(sCtx *smt.SymContext) string {
 	argA := sCtx.NewIntArgument("a")
 	argB := sCtx.NewIntArgument("b")
 
-	oneBVConst := sCtx.Ctx.FromInt(1, sCtx.Ctx.IntSort()).(z3.Int).ToBV(32)
-	zeroBVConst := sCtx.Ctx.FromInt(0, sCtx.Ctx.IntSort()).(z3.Int).ToBV(32)
+	intSize := sCtx.TypesCtx.IntSize
+	oneBVConst := sCtx.Ctx.FromInt(1, sCtx.Ctx.IntSort()).(z3.Int).ToBV(intSize)
+	zeroBVConst := sCtx.Ctx.FromInt(0, sCtx.Ctx.IntSort()).(z3.Int).ToBV(intSize)
 
-	sCtx.Solver.Assert(argA.ToBV(32).And(oneBVConst).Eq(zeroBVConst).And(argB.ToBV(32).And(oneBVConst).Eq(zeroBVConst)))
+	sCtx.Solver.Assert(argA.ToBV(intSize).And(oneBVConst).Eq(zeroBVConst).And(argB.ToBV(intSize).And(oneBVConst).Eq(zeroBVConst)))
 
 	return "a&1 == 0 && b&1 == 0"
 }
@@ -293,13 +294,14 @@ func bitwiseOperations2(sCtx *smt.SymContext) string {
 	argA := sCtx.NewIntArgument("a")
 	argB := sCtx.NewIntArgument("b")
 
-	oneBVConst := sCtx.Ctx.FromInt(1, sCtx.Ctx.IntSort()).(z3.Int).ToBV(32)
-	zeroBVConst := sCtx.Ctx.FromInt(0, sCtx.Ctx.IntSort()).(z3.Int).ToBV(32)
+	intSize := sCtx.TypesCtx.IntSize
+	oneBVConst := sCtx.Ctx.FromInt(1, sCtx.Ctx.IntSort()).(z3.Int).ToBV(intSize)
+	zeroBVConst := sCtx.Ctx.FromInt(0, sCtx.Ctx.IntSort()).(z3.Int).ToBV(intSize)
 
-	prevCond := argA.ToBV(32).And(oneBVConst).Eq(zeroBVConst).And(argB.ToBV(32).And(oneBVConst).Eq(zeroBVConst))
+	prevCond := argA.ToBV(intSize).And(oneBVConst).Eq(zeroBVConst).And(argB.ToBV(intSize).And(oneBVConst).Eq(zeroBVConst))
 	sCtx.Solver.Assert(prevCond.Not())
 
-	newCond := argA.ToBV(32).And(oneBVConst).Eq(oneBVConst).And(argB.ToBV(32).And(oneBVConst).Eq(oneBVConst))
+	newCond := argA.ToBV(intSize).And(oneBVConst).Eq(oneBVConst).And(argB.ToBV(intSize).And(oneBVConst).Eq(oneBVConst))
 	sCtx.Solver.Assert(newCond)
 
 	return "a&1 == 0 && b&1 == 0"
@@ -309,13 +311,14 @@ func bitwiseOperations3(sCtx *smt.SymContext) string {
 	argA := sCtx.NewIntArgument("a")
 	argB := sCtx.NewIntArgument("b")
 
-	oneBVConst := sCtx.Ctx.FromInt(1, sCtx.Ctx.IntSort()).(z3.Int).ToBV(32)
-	zeroBVConst := sCtx.Ctx.FromInt(0, sCtx.Ctx.IntSort()).(z3.Int).ToBV(32)
+	intSize := sCtx.TypesCtx.IntSize
+	oneBVConst := sCtx.Ctx.FromInt(1, sCtx.Ctx.IntSort()).(z3.Int).ToBV(intSize)
+	zeroBVConst := sCtx.Ctx.FromInt(0, sCtx.Ctx.IntSort()).(z3.Int).ToBV(intSize)
 
-	prevCond1 := argA.ToBV(32).And(oneBVConst).Eq(zeroBVConst).And(argB.ToBV(32).And(oneBVConst).Eq(zeroBVConst))
+	prevCond1 := argA.ToBV(intSize).And(oneBVConst).Eq(zeroBVConst).And(argB.ToBV(intSize).And(oneBVConst).Eq(zeroBVConst))
 	sCtx.Solver.Assert(prevCond1.Not())
 
-	prevCond2 := argA.ToBV(32).And(oneBVConst).Eq(oneBVConst).And(argB.ToBV(32).And(oneBVConst).Eq(oneBVConst))
+	prevCond2 := argA.ToBV(intSize).And(oneBVConst).Eq(oneBVConst).And(argB.ToBV(intSize).And(oneBVConst).Eq(oneBVConst))
 	sCtx.Solver.Assert(prevCond2.Not())
 
 	return "a&1 == 0 && b&1 == 0"
@@ -394,9 +397,10 @@ func combinedBitwise1(sCtx *smt.SymContext) string {
 	argA := sCtx.NewIntArgument("a")
 	argB := sCtx.NewIntArgument("b")
 
-	zeroBVConst := sCtx.Ctx.FromInt(0, sCtx.Ctx.IntSort()).(z3.Int).ToBV(32)
+	intSize := sCtx.TypesCtx.IntSize
+	zeroBVConst := sCtx.Ctx.FromInt(0, sCtx.Ctx.IntSort()).(z3.Int).ToBV(intSize)
 
-	cond := argA.ToBV(32).And(argB.ToBV(32)).Eq(zeroBVConst)
+	cond := argA.ToBV(intSize).And(argB.ToBV(intSize)).Eq(zeroBVConst)
 	sCtx.Solver.Assert(cond)
 
 	return "a&b == 0"
@@ -406,9 +410,10 @@ func combinedBitwise2(sCtx *smt.SymContext) string {
 	argA := sCtx.NewIntArgument("a")
 	argB := sCtx.NewIntArgument("b")
 
-	zeroBVConst := sCtx.Ctx.FromInt(0, sCtx.Ctx.IntSort()).(z3.Int).ToBV(32)
+	intSize := sCtx.TypesCtx.IntSize
+	zeroBVConst := sCtx.Ctx.FromInt(0, sCtx.Ctx.IntSort()).(z3.Int).ToBV(intSize)
 
-	argAAndArgB := argA.ToBV(32).And(argB.ToBV(32))
+	argAAndArgB := argA.ToBV(intSize).And(argB.ToBV(intSize))
 	prevCond := argAAndArgB.Eq(zeroBVConst)
 	sCtx.Solver.Assert(prevCond.Not())
 
@@ -423,9 +428,10 @@ func combinedBitwise3(sCtx *smt.SymContext) string {
 	argA := sCtx.NewIntArgument("a")
 	argB := sCtx.NewIntArgument("b")
 
-	zeroBVConst := sCtx.Ctx.FromInt(0, sCtx.Ctx.IntSort()).(z3.Int).ToBV(32)
+	intSize := sCtx.TypesCtx.IntSize
+	zeroBVConst := sCtx.Ctx.FromInt(0, sCtx.Ctx.IntSort()).(z3.Int).ToBV(intSize)
 
-	argAAndArgB := argA.ToBV(32).And(argB.ToBV(32))
+	argAAndArgB := argA.ToBV(intSize).And(argB.ToBV(intSize))
 	prevCond1 := argAAndArgB.Eq(zeroBVConst)
 	sCtx.Solver.Assert(prevCond1.Not())
 
