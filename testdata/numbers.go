@@ -1,4 +1,4 @@
-package main
+package testdata
 
 func integerOperations(a int, b int) int {
 	if a > b {
