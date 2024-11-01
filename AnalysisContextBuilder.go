@@ -6,61 +6,25 @@ import (
 	"go/token"
 	ssa2 "golang.org/x/tools/go/ssa"
 	"symbolic_execution_course/formulas"
-	"symbolic_execution_course/smt"
 )
 
-func BuildConstraints(code string) {
-	ssa := GetSsa(code)
-	for _, member := range ssa.Members {
-		fun, ok := member.(*ssa2.Function)
-		if !ok {
-			continue
-		}
-		if fun.Synthetic != "" {
-			continue
-		}
-
-		solver, z3ctx := smt.CreateSolver()
-		sorts := formulas.Sorts{
-			IntSort:     z3ctx.IntSort(),
-			FloatSort:   z3ctx.FloatSort(11, 53), // todo
-			UnknownSort: z3ctx.UninterpretedSort("unknown"),
-		}
-		ctx := &formulas.AnalysisContext{
-			Z3ctx:       z3ctx,
-			Constraints: nil,
-			Sorts:       sorts,
-			ResultValue: z3ctx.FreshConst("result", z3ctx.IntSort()), // todo
-		}
-
-		visitFunction(*fun, ctx)
-		putConstraintsToSolver(solver, ctx.Constraints)
-
-		//argA := ctx.Z3ctx.IntConst("a")
-		//argAValue := ctx.Z3ctx.FromInt(2, ctx.Sorts.IntSort).(z3.Int)
-		//
-		//argB := ctx.Z3ctx.IntConst("b")
-		//argBValue := ctx.Z3ctx.FromInt(2, ctx.Sorts.IntSort).(z3.Int)
-
-		//resC := ctx.ResultValue.(z3.Int)
-		//resValue := ctx.Z3ctx.FromInt(3, ctx.Sorts.IntSort).(z3.Int)
-
-		//solver.Assert(resValue.Eq(resC))
-
-		println(solver.String())
-		println("===")
-		res, _ := solver.Check()
-		if res {
-			println(solver.Model().String())
-		}
-
+func BuildAnalysisContext(function *ssa2.Function, z3ctx *z3.Context) *formulas.AnalysisContext {
+	sorts := formulas.Sorts{
+		IntSort:     z3ctx.IntSort(),
+		FloatSort:   z3ctx.FloatSort(11, 53), // todo
+		UnknownSort: z3ctx.UninterpretedSort("unknown"),
 	}
-}
 
-func putConstraintsToSolver(solver *z3.Solver, constraints []formulas.Formula) {
-	for _, constraint := range constraints {
-		solver.Assert(constraint.Value())
+	ctx := &formulas.AnalysisContext{
+		Z3ctx:       z3ctx,
+		Constraints: []formulas.Formula{},
+		Sorts:       sorts,
+		ResultValue: z3ctx.FreshConst("result", z3ctx.IntSort()), // todo
 	}
+
+	visitFunction(*function, ctx)
+
+	return ctx
 }
 
 func visitFunction(node ssa2.Function, ctx *formulas.AnalysisContext) {
