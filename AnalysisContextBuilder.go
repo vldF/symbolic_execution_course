@@ -19,8 +19,14 @@ func BuildAnalysisContext(function *ssa2.Function, z3ctx *z3.Context) *formulas.
 		Z3ctx:       z3ctx,
 		Constraints: []formulas.Formula{},
 		Sorts:       sorts,
-		ResultValue: z3ctx.FreshConst("result", z3ctx.IntSort()), // todo
 	}
+
+	returnType := function.Signature.Results().At(0).Type()
+	if returnType == nil {
+		return nil
+	}
+
+	ctx.ResultValue = z3ctx.FreshConst("result", ctx.TypeToSort(returnType))
 
 	visitFunction(*function, ctx)
 
