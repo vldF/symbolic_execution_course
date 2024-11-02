@@ -21,6 +21,9 @@ func SymbolicMachineTest(
 
 	addTestConstraints(ctx, solver, args, expected)
 
+	println(" ", "SMT with test constraints is:")
+	println(" ", solver.String())
+
 	res, err := solver.Check()
 
 	if err != nil {

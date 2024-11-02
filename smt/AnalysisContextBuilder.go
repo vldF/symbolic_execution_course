@@ -15,6 +15,8 @@ func BuildAnalysisContext(function *ssa2.Function, z3ctx *z3.Context) *formulas.
 		UnknownSort: z3ctx.UninterpretedSort("unknown"),
 	}
 
+	sorts.ComplexSort = z3ctx.ArraySort(sorts.IntSort, sorts.FloatSort)
+
 	ctx := &formulas.AnalysisContext{
 		Z3ctx:       z3ctx,
 		Constraints: []formulas.Formula{},
@@ -71,6 +73,20 @@ func visitValue(value ssa2.Value, ctx *formulas.AnalysisContext) z3.Value {
 	case *ssa2.Phi:
 		return visitPhi(value.(*ssa2.Phi), ctx)
 	case *ssa2.Call:
+		call := value.(*ssa2.Call)
+		switch callValue := call.Call.Value.(type) {
+		case *ssa2.Builtin:
+			switch callValue.Name() {
+			case "real":
+				arg := call.Call.Args[0]
+				return visitComplexReal(arg, ctx)
+
+			case "imag":
+				arg := call.Call.Args[0]
+				return visitComplexImag(arg, ctx)
+			}
+		}
+
 		return nil
 	case *ssa2.BinOp:
 		return visitBinOp(value.(*ssa2.BinOp), ctx)
@@ -119,6 +135,14 @@ func visitValue(value ssa2.Value, ctx *formulas.AnalysisContext) z3.Value {
 		return nil
 
 	}
+}
+
+func visitComplexReal(arg ssa2.Value, ctx *formulas.AnalysisContext) z3.Value {
+	return ctx.ComplexGetReal(visitValue(arg, ctx))
+}
+
+func visitComplexImag(arg ssa2.Value, ctx *formulas.AnalysisContext) z3.Value {
+	return ctx.ComplexGetImag(visitValue(arg, ctx))
 }
 
 func visitBinOp(value *ssa2.BinOp, ctx *formulas.AnalysisContext) z3.Value {
@@ -174,6 +198,7 @@ func visitConst(value *ssa2.Const, ctx *formulas.AnalysisContext) z3.Value {
 	case constant.Float:
 		return ctx.Z3ctx.FromFloat64(value.Float64(), ctx.Sorts.FloatSort)
 	case constant.Complex:
+		return ctx.NewComplex(value.Complex128())
 	case constant.String:
 	case constant.Unknown:
 	}
