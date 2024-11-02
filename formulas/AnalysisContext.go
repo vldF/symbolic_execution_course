@@ -11,6 +11,7 @@ type AnalysisContext struct {
 	Sorts Sorts
 
 	Constraints []Formula
+	Args        map[string]z3.Value
 	ResultValue z3.Value
 
 	basicBlockHistory []*ssa.BasicBlock

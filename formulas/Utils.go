@@ -1,6 +1,7 @@
 package formulas
 
 import (
+	"fmt"
 	"github.com/aclements/go-z3/z3"
 	"go/types"
 )
@@ -123,4 +124,23 @@ func (ctx AnalysisContext) TypeToSort(t types.Type) z3.Sort {
 	}
 
 	return ctx.Sorts.UnknownSort
+}
+
+func FloatToString(f z3.Float) string {
+	float, _ := f.AsBigFloat()
+
+	return fmt.Sprintf("%d", float)
+}
+
+func (ctx *AnalysisContext) GoToZ3Value(v any) z3.Value {
+	switch casted := v.(type) {
+	case int, int64, int32, int16, int8, uint, uint64, uint32, uint16, uint8:
+		return ctx.Z3ctx.FromInt(int64(casted.(int)), ctx.Sorts.IntSort)
+	case float64, float32:
+		return ctx.Z3ctx.FromFloat64(float64(casted.(float64)), ctx.Sorts.FloatSort)
+	case bool:
+		return ctx.Z3ctx.FromBool(casted)
+	default:
+		panic("unsupported argument")
+	}
 }

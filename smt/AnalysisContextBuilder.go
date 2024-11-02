@@ -1,4 +1,4 @@
-package main
+package smt
 
 import (
 	"github.com/aclements/go-z3/z3"
@@ -19,11 +19,18 @@ func BuildAnalysisContext(function *ssa2.Function, z3ctx *z3.Context) *formulas.
 		Z3ctx:       z3ctx,
 		Constraints: []formulas.Formula{},
 		Sorts:       sorts,
+		Args:        make(map[string]z3.Value),
 	}
 
 	returnType := function.Signature.Results().At(0).Type()
 	if returnType == nil {
 		return nil
+	}
+
+	for i := 0; i < function.Signature.Params().Len(); i++ {
+		argName := function.Signature.Params().At(i).Name()
+		argType := ctx.TypeToSort(function.Signature.Params().At(i).Type())
+		ctx.Args[argName] = z3ctx.Const(argName, argType)
 	}
 
 	ctx.ResultValue = z3ctx.FreshConst("result", ctx.TypeToSort(returnType))
@@ -146,7 +153,7 @@ func visitBinOp(value *ssa2.BinOp, ctx *formulas.AnalysisContext) z3.Value {
 }
 
 func visitParameter(parameter *ssa2.Parameter, ctx *formulas.AnalysisContext) z3.Value {
-	return ctx.Z3ctx.Const(parameter.Name(), ctx.TypeToSort(parameter.Type()))
+	return ctx.Args[parameter.Name()]
 }
 
 func visitConst(value *ssa2.Const, ctx *formulas.AnalysisContext) z3.Value {
