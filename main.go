@@ -15,14 +15,14 @@ func main() {
 }
 
 func runNumbers() {
-	runAnalysisFor("numbers", "integerOperations")
-	runAnalysisFor("numbers", "floatOperations")
+	//runAnalysisFor("numbers", "integerOperations")
+	//runAnalysisFor("numbers", "floatOperations")
 	runAnalysisFor("numbers", "mixedOperations")
-	runAnalysisFor("numbers", "nestedConditions")
-	runAnalysisFor("numbers", "bitwiseOperations")
-	runAnalysisFor("numbers", "advancedBitwise")
-	runAnalysisFor("numbers", "combinedBitwise")
-	runAnalysisFor("numbers", "nestedBitwise")
+	//runAnalysisFor("numbers", "nestedConditions")
+	//runAnalysisFor("numbers", "bitwiseOperations")
+	//runAnalysisFor("numbers", "advancedBitwise")
+	//runAnalysisFor("numbers", "combinedBitwise")
+	//runAnalysisFor("numbers", "nestedBitwise")
 }
 
 func runAnalysisFor(fileName string, functionName string) {
@@ -50,6 +50,10 @@ func runForFunction(fun *ssa2.Function) {
 
 	putConstraintsToSolver(solver, analysisCtx.Constraints)
 
+	//floatSort := analysisCtx.Sorts.FloatSort
+	//solver.Assert(z3ctx.Const("x", floatSort).(z3.Float).Eq(z3ctx.FromFloat64(4.0, floatSort)))
+	//solver.Assert(z3ctx.Const("y", floatSort).(z3.Float).Eq(z3ctx.FromFloat64(3.0, floatSort)))
+
 	println(" ", "SMT is:")
 	println(" ", solver.String())
 	println("===")
@@ -66,7 +70,9 @@ func runForFunction(fun *ssa2.Function) {
 	}
 
 	println("model is")
-	println(solver.Model().String())
+	model := solver.Model()
+	println(model.String())
+	//println(model.Eval(analysisCtx.ResultValue, true).(z3.Float).String())
 }
 
 func putConstraintsToSolver(solver *z3.Solver, constraints []formulas.Formula) {

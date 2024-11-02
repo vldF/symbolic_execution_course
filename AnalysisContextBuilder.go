@@ -44,6 +44,8 @@ func visitFunction(node ssa2.Function, ctx *formulas.AnalysisContext) {
 }
 
 func visitBlock(block *ssa2.BasicBlock, ctx *formulas.AnalysisContext) formulas.Formula {
+	ctx.PushBasicBlock(block)
+
 	result := formulas.NewAndFormula(ctx)
 	for _, instr := range block.Instrs {
 		if instrFormula := visitInstruction(instr, ctx); instrFormula != nil {
@@ -51,6 +53,7 @@ func visitBlock(block *ssa2.BasicBlock, ctx *formulas.AnalysisContext) formulas.
 		}
 	}
 
+	ctx.PopBasicBlock()
 	return &result
 }
 
@@ -59,7 +62,7 @@ func visitValue(value ssa2.Value, ctx *formulas.AnalysisContext) z3.Value {
 	case *ssa2.Alloc:
 		return nil
 	case *ssa2.Phi:
-		return nil
+		return visitPhi(value.(*ssa2.Phi), ctx)
 	case *ssa2.Call:
 		return nil
 	case *ssa2.BinOp:
@@ -69,7 +72,7 @@ func visitValue(value ssa2.Value, ctx *formulas.AnalysisContext) z3.Value {
 	case *ssa2.ChangeType:
 		return nil
 	case *ssa2.Convert:
-		return nil
+		return visitValue(value.(*ssa2.Convert).X, ctx)
 	case *ssa2.MultiConvert:
 		return nil
 	case *ssa2.ChangeInterface:
@@ -133,6 +136,10 @@ func visitBinOp(value *ssa2.BinOp, ctx *formulas.AnalysisContext) z3.Value {
 		return ctx.Ge(visitValue(value.X, ctx), visitValue(value.Y, ctx))
 	case token.SUB:
 		return ctx.Sub(visitValue(value.X, ctx), visitValue(value.Y, ctx))
+	case token.REM:
+		return visitValue(value.X, ctx).(z3.Int).Rem(visitValue(value.Y, ctx).(z3.Int))
+	default:
+		println("unsupported binop", value.String())
 	}
 
 	return nil
@@ -184,12 +191,30 @@ func visitInstruction(instr ssa2.Instruction, ctx *formulas.AnalysisContext) for
 		return nil
 	case *ssa2.IndexAddr:
 		return nil
+	case *ssa2.Jump:
+		return visitBlock(instr.(*ssa2.Jump).Block().Succs[0], ctx)
 	default:
 		println("unknown instruction", instr.String())
 		return nil
 	}
 
 	return nil
+}
+
+func visitPhi(phi *ssa2.Phi, ctx *formulas.AnalysisContext) z3.Value {
+	block := phi.Block()
+	var predIdx int
+
+	for i, pred := range block.Preds {
+		if !ctx.HasBasicBlockInHistory(pred) {
+			continue
+		}
+
+		predIdx = i
+		break
+	}
+
+	return visitValue(phi.Edges[predIdx], ctx)
 }
 
 func visitReturn(instr *ssa2.Return, ctx *formulas.AnalysisContext) formulas.Formula {

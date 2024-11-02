@@ -2,6 +2,8 @@ package formulas
 
 import (
 	"github.com/aclements/go-z3/z3"
+	"golang.org/x/tools/go/ssa"
+	"slices"
 )
 
 type AnalysisContext struct {
@@ -10,10 +12,28 @@ type AnalysisContext struct {
 
 	Constraints []Formula
 	ResultValue z3.Value
+
+	basicBlockHistory []*ssa.BasicBlock
 }
 
 type Sorts struct {
 	IntSort     z3.Sort
 	FloatSort   z3.Sort
 	UnknownSort z3.Sort
+}
+
+func (ctx *AnalysisContext) PushBasicBlock(bb *ssa.BasicBlock) {
+	ctx.basicBlockHistory = append(ctx.basicBlockHistory, bb)
+}
+
+func (ctx *AnalysisContext) PopBasicBlock() {
+	if len(ctx.basicBlockHistory) == 0 {
+		return
+	}
+
+	ctx.basicBlockHistory = ctx.basicBlockHistory[:len(ctx.basicBlockHistory)-1]
+}
+
+func (ctx *AnalysisContext) HasBasicBlockInHistory(bb *ssa.BasicBlock) bool {
+	return slices.Contains(ctx.basicBlockHistory, bb)
 }
