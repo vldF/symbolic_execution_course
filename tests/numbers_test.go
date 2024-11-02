@@ -213,3 +213,73 @@ func Test_Numbers_AdvancedBitwise_3(t *testing.T) {
 
 	SymbolicMachineTest("numbers", "advancedBitwise", args, expected, t)
 }
+
+func Test_Numbers_CombinedBitwise_1(t *testing.T) {
+	args := make(map[string]any)
+	args["a"] = 2
+	args["b"] = 1
+
+	expected := 2 | 1
+
+	SymbolicMachineTest("numbers", "combinedBitwise", args, expected, t)
+}
+
+func Test_Numbers_CombinedBitwise_2(t *testing.T) {
+	args := make(map[string]any)
+	args["a"] = 3
+	args["b"] = 1
+
+	expected := 1
+
+	SymbolicMachineTest("numbers", "combinedBitwise", args, expected, t)
+}
+
+func Test_Numbers_CombinedBitwise_3(t *testing.T) {
+	args := make(map[string]any)
+	args["a"] = 0b1111
+	args["b"] = 0b101111
+
+	expected := 0b1111 ^ 0b101111
+
+	SymbolicMachineTest("numbers", "combinedBitwise", args, expected, t)
+}
+
+func Test_Numbers_nestedBitwise_1(t *testing.T) {
+	args := make(map[string]any)
+	args["a"] = -1
+	args["b"] = 0
+
+	expected := -1
+
+	SymbolicMachineTest("numbers", "nestedBitwise", args, expected, t)
+}
+
+func Test_Numbers_nestedBitwise_2(t *testing.T) {
+	args := make(map[string]any)
+	args["a"] = 0b10101
+	args["b"] = -1
+
+	expected := 0b10101 ^ 0
+
+	SymbolicMachineTest("numbers", "nestedBitwise", args, expected, t)
+}
+
+func Test_Numbers_nestedBitwise_3(t *testing.T) {
+	args := make(map[string]any)
+	args["a"] = 1
+	args["b"] = 2
+
+	expected := 1 | 2
+
+	SymbolicMachineTest("numbers", "nestedBitwise", args, expected, t)
+}
+
+func Test_Numbers_nestedBitwise_4(t *testing.T) {
+	args := make(map[string]any)
+	args["a"] = 1
+	args["b"] = 3
+
+	expected := 1 & 3
+
+	SymbolicMachineTest("numbers", "nestedBitwise", args, expected, t)
+}
