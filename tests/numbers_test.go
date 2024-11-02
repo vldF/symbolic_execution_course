@@ -123,3 +123,63 @@ func Test_Numbers_MixedOperations_6(t *testing.T) {
 
 	SymbolicMachineTest("numbers", "mixedOperations", args, expected, t)
 }
+
+func Test_Numbers_NestedConditions_1(t *testing.T) {
+	args := make(map[string]any)
+	args["a"] = 1
+	args["b"] = 2.0
+
+	expected := 3.0
+
+	SymbolicMachineTest("numbers", "nestedConditions", args, expected, t)
+}
+
+func Test_Numbers_NestedConditions_2(t *testing.T) {
+	args := make(map[string]any)
+	args["a"] = -1
+	args["b"] = 2.0
+
+	expected := -1.0
+
+	SymbolicMachineTest("numbers", "nestedConditions", args, expected, t)
+}
+
+func Test_Numbers_NestedConditions_3(t *testing.T) {
+	args := make(map[string]any)
+	args["a"] = -1
+	args["b"] = -2.0
+
+	expected := -1.0
+
+	SymbolicMachineTest("numbers", "nestedConditions", args, expected, t)
+}
+
+func Test_Numbers_BitwiseOperations_1(t *testing.T) {
+	args := make(map[string]any)
+	args["a"] = 2
+	args["b"] = 4
+
+	expected := 2 | 4
+
+	SymbolicMachineTest("numbers", "bitwiseOperations", args, expected, t)
+}
+
+func Test_Numbers_BitwiseOperations_2(t *testing.T) {
+	args := make(map[string]any)
+	args["a"] = 3
+	args["b"] = 5
+
+	expected := 3 & 5
+
+	SymbolicMachineTest("numbers", "bitwiseOperations", args, expected, t)
+}
+
+func Test_Numbers_BitwiseOperations_3(t *testing.T) {
+	args := make(map[string]any)
+	args["a"] = 4
+	args["b"] = 5
+
+	expected := 4 ^ 5
+
+	SymbolicMachineTest("numbers", "bitwiseOperations", args, expected, t)
+}
