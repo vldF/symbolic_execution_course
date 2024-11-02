@@ -5,8 +5,8 @@ import (
 	"github.com/aclements/go-z3/z3"
 	"io"
 	"os"
-	"symbolic_execution_course/formulas"
 	"symbolic_execution_course/smt"
+	"symbolic_execution_course/ssa"
 	"testing"
 )
 
@@ -34,7 +34,7 @@ func SymbolicMachineTest(
 	}
 }
 
-func addTestConstraints(ctx *formulas.AnalysisContext, solver *z3.Solver, args map[string]any, expected any) {
+func addTestConstraints(ctx *smt.AnalysisContext, solver *z3.Solver, args map[string]any, expected any) {
 	for argName, argValue := range args {
 		argConst := ctx.Args[argName]
 		solver.Assert(ctx.Eq(ctx.GoToZ3Value(argValue), argConst))
@@ -44,7 +44,7 @@ func addTestConstraints(ctx *formulas.AnalysisContext, solver *z3.Solver, args m
 	solver.Assert(ctx.Eq(resultConst, ctx.GoToZ3Value(expected)))
 }
 
-func runAnalysisFor(fileName string, functionName string) (*formulas.AnalysisContext, *z3.Solver) {
+func runAnalysisFor(fileName string, functionName string) (*smt.AnalysisContext, *z3.Solver) {
 	sourceFile, fileErr := os.Open("../testdata/" + fileName + ".go")
 	if fileErr != nil {
 		fmt.Printf("Error opening test file: %v\n", fileErr)
@@ -56,7 +56,7 @@ func runAnalysisFor(fileName string, functionName string) (*formulas.AnalysisCon
 		return nil, nil
 	}
 
-	ssa := smt.GetSsa(string(code))
+	ssa := ssa.GetSsa(string(code))
 	fun := ssa.Func(functionName)
 
 	solver, z3ctx := smt.CreateSolver()
@@ -71,7 +71,7 @@ func runAnalysisFor(fileName string, functionName string) (*formulas.AnalysisCon
 	return analysisCtx, solver
 }
 
-func putConstraintsToSolver(solver *z3.Solver, constraints []formulas.Formula) {
+func putConstraintsToSolver(solver *z3.Solver, constraints []smt.Formula) {
 	for _, constraint := range constraints {
 		solver.Assert(constraint.Value())
 	}

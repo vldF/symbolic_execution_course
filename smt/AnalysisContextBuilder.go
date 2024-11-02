@@ -5,11 +5,10 @@ import (
 	"go/constant"
 	"go/token"
 	ssa2 "golang.org/x/tools/go/ssa"
-	"symbolic_execution_course/formulas"
 )
 
-func BuildAnalysisContext(function *ssa2.Function, z3ctx *z3.Context) *formulas.AnalysisContext {
-	sorts := formulas.Sorts{
+func BuildAnalysisContext(function *ssa2.Function, z3ctx *z3.Context) *AnalysisContext {
+	sorts := Sorts{
 		IntSort:     z3ctx.IntSort(),
 		FloatSort:   z3ctx.FloatSort(11, 53), // todo
 		UnknownSort: z3ctx.UninterpretedSort("unknown"),
@@ -17,9 +16,9 @@ func BuildAnalysisContext(function *ssa2.Function, z3ctx *z3.Context) *formulas.
 
 	sorts.ComplexSort = z3ctx.ArraySort(sorts.IntSort, sorts.FloatSort)
 
-	ctx := &formulas.AnalysisContext{
+	ctx := &AnalysisContext{
 		Z3ctx:       z3ctx,
-		Constraints: []formulas.Formula{},
+		Constraints: []Formula{},
 		Sorts:       sorts,
 		Args:        make(map[string]z3.Value),
 	}
@@ -42,7 +41,7 @@ func BuildAnalysisContext(function *ssa2.Function, z3ctx *z3.Context) *formulas.
 	return ctx
 }
 
-func visitFunction(node ssa2.Function, ctx *formulas.AnalysisContext) {
+func visitFunction(node ssa2.Function, ctx *AnalysisContext) {
 	if len(node.DomPreorder()) == 0 {
 		return
 	}
@@ -52,10 +51,10 @@ func visitFunction(node ssa2.Function, ctx *formulas.AnalysisContext) {
 	ctx.Constraints = append(ctx.Constraints, formula)
 }
 
-func visitBlock(block *ssa2.BasicBlock, ctx *formulas.AnalysisContext) formulas.Formula {
+func visitBlock(block *ssa2.BasicBlock, ctx *AnalysisContext) Formula {
 	ctx.PushBasicBlock(block)
 
-	result := formulas.NewAndFormula(ctx)
+	result := NewAndFormula(ctx)
 	for _, instr := range block.Instrs {
 		if instrFormula := visitInstruction(instr, ctx); instrFormula != nil {
 			result.Add(instrFormula)
@@ -66,7 +65,7 @@ func visitBlock(block *ssa2.BasicBlock, ctx *formulas.AnalysisContext) formulas.
 	return &result
 }
 
-func visitValue(value ssa2.Value, ctx *formulas.AnalysisContext) z3.Value {
+func visitValue(value ssa2.Value, ctx *AnalysisContext) z3.Value {
 	switch value.(type) {
 	case *ssa2.Alloc:
 		return nil
@@ -137,15 +136,15 @@ func visitValue(value ssa2.Value, ctx *formulas.AnalysisContext) z3.Value {
 	}
 }
 
-func visitComplexReal(arg ssa2.Value, ctx *formulas.AnalysisContext) z3.Value {
+func visitComplexReal(arg ssa2.Value, ctx *AnalysisContext) z3.Value {
 	return ctx.ComplexGetReal(visitValue(arg, ctx))
 }
 
-func visitComplexImag(arg ssa2.Value, ctx *formulas.AnalysisContext) z3.Value {
+func visitComplexImag(arg ssa2.Value, ctx *AnalysisContext) z3.Value {
 	return ctx.ComplexGetImag(visitValue(arg, ctx))
 }
 
-func visitBinOp(value *ssa2.BinOp, ctx *formulas.AnalysisContext) z3.Value {
+func visitBinOp(value *ssa2.BinOp, ctx *AnalysisContext) z3.Value {
 	switch value.Op {
 	case token.ADD:
 		return ctx.Add(visitValue(value.X, ctx), visitValue(value.Y, ctx))
@@ -185,11 +184,11 @@ func visitBinOp(value *ssa2.BinOp, ctx *formulas.AnalysisContext) z3.Value {
 	}
 }
 
-func visitParameter(parameter *ssa2.Parameter, ctx *formulas.AnalysisContext) z3.Value {
+func visitParameter(parameter *ssa2.Parameter, ctx *AnalysisContext) z3.Value {
 	return ctx.Args[parameter.Name()]
 }
 
-func visitConst(value *ssa2.Const, ctx *formulas.AnalysisContext) z3.Value {
+func visitConst(value *ssa2.Const, ctx *AnalysisContext) z3.Value {
 	switch value.Value.Kind() {
 	case constant.Int:
 		return ctx.Z3ctx.FromInt(value.Int64(), ctx.Sorts.IntSort)
@@ -206,7 +205,7 @@ func visitConst(value *ssa2.Const, ctx *formulas.AnalysisContext) z3.Value {
 	return ctx.Z3ctx.FreshConst("unknown", ctx.Sorts.UnknownSort)
 }
 
-func visitInstruction(instr ssa2.Instruction, ctx *formulas.AnalysisContext) formulas.Formula {
+func visitInstruction(instr ssa2.Instruction, ctx *AnalysisContext) Formula {
 	switch instr.(type) {
 	case *ssa2.If:
 		return visitIf(instr.(*ssa2.If), ctx)
@@ -242,7 +241,7 @@ func visitInstruction(instr ssa2.Instruction, ctx *formulas.AnalysisContext) for
 	return nil
 }
 
-func visitPhi(phi *ssa2.Phi, ctx *formulas.AnalysisContext) z3.Value {
+func visitPhi(phi *ssa2.Phi, ctx *AnalysisContext) z3.Value {
 	block := phi.Block()
 	var predIdx int
 
@@ -258,16 +257,16 @@ func visitPhi(phi *ssa2.Phi, ctx *formulas.AnalysisContext) z3.Value {
 	return visitValue(phi.Edges[predIdx], ctx)
 }
 
-func visitReturn(instr *ssa2.Return, ctx *formulas.AnalysisContext) formulas.Formula {
+func visitReturn(instr *ssa2.Return, ctx *AnalysisContext) Formula {
 	result := instr.Results[0]
 	resultExpr := visitValue(result, ctx)
-	resultFormula := formulas.NewSimpleFormula(ctx)
+	resultFormula := NewSimpleFormula(ctx)
 	resultFormula.Add(ctx.Eq(resultExpr, ctx.ResultValue))
 
 	return &resultFormula
 }
 
-func visitIf(instr *ssa2.If, ctx *formulas.AnalysisContext) formulas.Formula {
+func visitIf(instr *ssa2.If, ctx *AnalysisContext) Formula {
 	cond := visitValue(instr.Cond, ctx)
 	condBool := cond.(z3.Bool)
 
@@ -275,14 +274,14 @@ func visitIf(instr *ssa2.If, ctx *formulas.AnalysisContext) formulas.Formula {
 	elseBlock := instr.Block().Succs[1]
 
 	mainBlockFormula := visitBlock(mainBlock, ctx)
-	mainBlockFormulaWithCond := formulas.NewFormulaWithCond(ctx, condBool)
+	mainBlockFormulaWithCond := NewFormulaWithCond(ctx, condBool)
 	mainBlockFormulaWithCond.Add(mainBlockFormula)
 
 	elseBlockFormula := visitBlock(elseBlock, ctx)
-	elseBlockFormulaWithCond := formulas.NewFormulaWithCond(ctx, condBool.Not())
+	elseBlockFormulaWithCond := NewFormulaWithCond(ctx, condBool.Not())
 	elseBlockFormulaWithCond.Add(elseBlockFormula)
 
-	result := formulas.NewOrFormula(ctx)
+	result := NewOrFormula(ctx)
 	result.Add(mainBlockFormulaWithCond)
 	result.Add(elseBlockFormulaWithCond)
 

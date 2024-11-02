@@ -1,4 +1,4 @@
-package smt
+package ssa
 
 import (
 	"fmt"
