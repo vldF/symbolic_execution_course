@@ -151,6 +151,10 @@ func visitBinOp(value *ssa2.BinOp, ctx *formulas.AnalysisContext) z3.Value {
 		return visitValue(value.X, ctx).(z3.Int).ToBV(64).Or(visitValue(value.Y, ctx).(z3.Int).ToBV(64)).SToInt()
 	case token.XOR:
 		return visitValue(value.X, ctx).(z3.Int).ToBV(64).Xor(visitValue(value.Y, ctx).(z3.Int).ToBV(64)).SToInt()
+	case token.SHL:
+		return visitValue(value.X, ctx).(z3.Int).ToBV(64).Lsh(visitValue(value.Y, ctx).(z3.Int).ToBV(64)).SToInt()
+	case token.SHR:
+		return visitValue(value.X, ctx).(z3.Int).ToBV(64).SRsh(visitValue(value.Y, ctx).(z3.Int).ToBV(64)).SToInt()
 	default:
 		println("unsupported binop", value.String())
 		return nil

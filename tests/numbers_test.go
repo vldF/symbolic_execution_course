@@ -183,3 +183,33 @@ func Test_Numbers_BitwiseOperations_3(t *testing.T) {
 
 	SymbolicMachineTest("numbers", "bitwiseOperations", args, expected, t)
 }
+
+func Test_Numbers_AdvancedBitwise_1(t *testing.T) {
+	args := make(map[string]any)
+	args["a"] = 5
+	args["b"] = 4
+
+	expected := 5 << 1
+
+	SymbolicMachineTest("numbers", "advancedBitwise", args, expected, t)
+}
+
+func Test_Numbers_AdvancedBitwise_2(t *testing.T) {
+	args := make(map[string]any)
+	args["a"] = 4
+	args["b"] = 5
+
+	expected := 5 >> 1
+
+	SymbolicMachineTest("numbers", "advancedBitwise", args, expected, t)
+}
+
+func Test_Numbers_AdvancedBitwise_3(t *testing.T) {
+	args := make(map[string]any)
+	args["a"] = 4
+	args["b"] = 4
+
+	expected := 4 ^ 4
+
+	SymbolicMachineTest("numbers", "advancedBitwise", args, expected, t)
+}
