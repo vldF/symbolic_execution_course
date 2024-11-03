@@ -17,9 +17,9 @@ func (ctx *AnalysisContext) Eq(left z3.Value, right z3.Value) z3.Bool {
 		return left.(z3.Float).Eq(right.(z3.Float))
 	case z3.Array:
 		return left.(z3.Array).Eq(right.(z3.Array))
-	case *Z3ArrayId:
+	case *memory.SymMemoryPtr:
 		leftCell := ctx.Memory.Cells[casted]
-		rightCell := ctx.Memory.Cells[right.(*Z3ArrayId)]
+		rightCell := ctx.Memory.Cells[right.(*memory.SymMemoryPtr)]
 
 		return ctx.eqCells(leftCell, rightCell)
 	}
@@ -167,6 +167,8 @@ func (ctx *AnalysisContext) TypeToSort(t types.Type) z3.Sort {
 	case *types.Slice:
 		elemType := t.(*types.Slice).Elem()
 		return ctx.Z3ctx.ArraySort(ctx.TypeToSort(elemType), ctx.Sorts.IntSort)
+	case *types.Struct:
+		return ctx.Sorts.StructSort
 	}
 
 	return ctx.Sorts.UnknownSort
@@ -201,7 +203,6 @@ func (ctx *AnalysisContext) GoToZ3Value(v any) z3.Value {
 		}
 
 		ctx.Memory.Cells[arrId].Fields[arrayField] = arr
-		//ctx.Memory.Cells[arrId].Fields[arrayLenField] = ctx.Z3ctx.FromInt(int64(3), ctx.Sorts.IntSort)
 		return arrId
 	default:
 		panic("unsupported argument")

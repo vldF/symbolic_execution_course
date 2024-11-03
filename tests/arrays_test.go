@@ -1,6 +1,8 @@
 package tests
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestCompareElement_1(t *testing.T) {
 	args := make(map[string]any)
@@ -85,4 +87,37 @@ func TestCompareElement_5(t *testing.T) {
 	expected := 0
 
 	SymbolicMachineTest("arrays", "compareElement", args, expected, t)
+}
+
+func TestCompareAge_1(t *testing.T) {
+	args := make(map[string]any)
+
+	args["index"] = 1
+	args["value"] = 10
+
+	expected := 1
+
+	SymbolicMachineTest("arrays", "compareAge", args, expected, t)
+}
+
+func TestCompareAge_2(t *testing.T) {
+	args := make(map[string]any)
+
+	args["index"] = 1
+	args["value"] = 10
+
+	expected := -1
+
+	SymbolicMachineTest("arrays", "compareAge", args, expected, t)
+}
+
+func TestCompareAge_3(t *testing.T) {
+	args := make(map[string]any)
+
+	args["index"] = 1
+	args["value"] = 10
+
+	expected := -1
+
+	SymbolicMachineTest("arrays", "compareAge", args, expected, t)
 }

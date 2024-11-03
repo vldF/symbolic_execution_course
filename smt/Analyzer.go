@@ -12,9 +12,10 @@ import (
 func BuildAnalysisContext(function *ssa2.Function, z3ctx *z3.Context) *AnalysisContext {
 	sorts := Sorts{
 		IntSort:     z3ctx.IntSort(),
-		FloatSort:   z3ctx.FloatSort(11, 53), // todo
+		FloatSort:   z3ctx.FloatSort(11, 53),
 		UnknownSort: z3ctx.UninterpretedSort("unknown"),
 		SymPtrSort:  z3ctx.UninterpretedSort("sym-ptr"),
+		StructSort:  z3ctx.UninterpretedSort("struct"),
 	}
 
 	sorts.ComplexSort = z3ctx.ArraySort(sorts.IntSort, sorts.FloatSort)
@@ -53,18 +54,38 @@ func initializeArgs(function *ssa2.Function, z3ctx *z3.Context, ctx *AnalysisCon
 		switch argType.(type) {
 		case *types.Array:
 			arrType := argType.(*types.Array)
-			elemType := arrType.Elem()
-			elemSort := ctx.TypeToSort(elemType)
-			ctx.Args[argName] = ctx.NewArray(elemSort, -1)
+			initArrayArg(arrType.Elem(), ctx, argName)
 		case *types.Slice:
 			arrType := argType.(*types.Slice)
-			elemType := arrType.Elem()
-			elemSort := ctx.TypeToSort(elemType)
-			ctx.Args[argName] = ctx.NewArray(elemSort, -1)
+			initArrayArg(arrType.Elem(), ctx, argName)
 		default:
 			argSort := ctx.TypeToSort(argType)
 			ctx.Args[argName] = z3ctx.Const(argName, argSort)
 		}
+	}
+}
+
+func initArrayArg(elementType types.Type, ctx *AnalysisContext, argName string) {
+	switch casted := elementType.(type) {
+	case *types.Basic:
+		elemSort := ctx.TypeToSort(elementType)
+		ctx.Args[argName] = ctx.NewArray(elemSort, -1)
+		return
+	case *types.Struct:
+		for i := 0; i < casted.NumFields(); i++ {
+			field := casted.Field(i)
+
+			syntheticName := argName + "_" + field.Name()
+			elemType := ctx.TypeToSort(field.Type())
+
+			ctx.Args[syntheticName] = ctx.NewArray(elemType, -1)
+
+			arrElemType := ctx.TypeToSort(elementType)
+			ctx.Args[argName] = ctx.NewArray(arrElemType, -1)
+		}
+	case *types.Pointer:
+		elemSort := casted.Elem().Underlying().(*types.Struct)
+		initArrayArg(elemSort, ctx, argName)
 	}
 }
 
@@ -140,11 +161,26 @@ func visitUnOp(op *ssa2.UnOp, ctx *AnalysisContext) z3.Value {
 }
 
 func visitDerefValue(op *ssa2.UnOp, ctx *AnalysisContext) z3.Value {
-	indexAddr := op.X.(*ssa2.IndexAddr)
-	arrayId := visitValue(indexAddr.X, ctx)
-	indexValue := visitValue(indexAddr.Index, ctx)
+	switch casted := op.X.(type) {
+	case *ssa2.IndexAddr:
+		symPtr := visitValue(casted.X, ctx)
+		indexValue := visitValue(casted.Index, ctx)
 
-	return ctx.GetArrayValue(arrayId.(*z3.Uninterpreted)).Select(indexValue)
+		return ctx.GetArrayValue(symPtr.(*memory.SymMemoryPtr)).Select(indexValue)
+	case *ssa2.FieldAddr:
+		unOp := casted.X.(*ssa2.UnOp)
+		indexAddr := unOp.X.(*ssa2.IndexAddr)
+		param := indexAddr.X.(*ssa2.Parameter)
+
+		elemType := param.Type().(*types.Slice).Elem().Underlying().(*types.Pointer).Elem().Underlying().(*types.Struct)
+
+		fieldName := elemType.Field(casted.Field).Name()
+		symPtr := visitParameterIndexed(param, visitValue(indexAddr.Index, ctx), fieldName, ctx)
+
+		return symPtr
+	}
+
+	return nil
 }
 
 func visitComplexReal(arg ssa2.Value, ctx *AnalysisContext) z3.Value {
@@ -197,6 +233,14 @@ func visitBinOp(value *ssa2.BinOp, ctx *AnalysisContext) z3.Value {
 
 func visitParameter(parameter *ssa2.Parameter, ctx *AnalysisContext) z3.Value {
 	return ctx.Args[parameter.Name()]
+}
+
+func visitParameterIndexed(parameter *ssa2.Parameter, index z3.Value, fieldName string, ctx *AnalysisContext) z3.Value {
+	paramName := parameter.Name()
+	synthArgName := paramName + "_" + fieldName
+	ptr := ctx.Args[synthArgName].(*memory.SymMemoryPtr)
+
+	return ctx.GetArrayValue(ptr).Select(index)
 }
 
 func visitConst(value *ssa2.Const, ctx *AnalysisContext) z3.Value {

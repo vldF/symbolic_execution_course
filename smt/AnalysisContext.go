@@ -25,6 +25,7 @@ type Sorts struct {
 	UnknownSort z3.Sort
 	ComplexSort z3.Sort
 	SymPtrSort  z3.Sort
+	StructSort  z3.Sort
 }
 
 func (ctx *AnalysisContext) PushBasicBlock(bb *ssa.BasicBlock) {

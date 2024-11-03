@@ -10,10 +10,8 @@ const (
 	arrayLenField = "length"
 )
 
-type Z3ArrayId = z3.Uninterpreted
-
-func (ctx *AnalysisContext) NewArray(sort z3.Sort, length int) *Z3ArrayId {
-	id := ctx.Z3ctx.FreshConst("arr-wrapper", ctx.Z3ctx.UninterpretedSort("array-id")).(Z3ArrayId)
+func (ctx *AnalysisContext) NewArray(sort z3.Sort, length int) *memory.SymMemoryPtr {
+	id := ctx.Z3ctx.FreshConst("arr-wrapper", ctx.Z3ctx.UninterpretedSort("array-id")).(memory.SymMemoryPtr)
 
 	indexSort := ctx.Sorts.IntSort
 	arraySort := ctx.Z3ctx.ArraySort(indexSort, sort)
