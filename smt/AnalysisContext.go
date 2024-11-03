@@ -4,6 +4,7 @@ import (
 	"github.com/aclements/go-z3/z3"
 	"golang.org/x/tools/go/ssa"
 	"slices"
+	"symbolic_execution_course/smt/memory"
 )
 
 type AnalysisContext struct {
@@ -15,6 +16,7 @@ type AnalysisContext struct {
 	ResultValue z3.Value
 
 	basicBlockHistory []*ssa.BasicBlock
+	Memory            memory.Memory
 }
 
 type Sorts struct {
@@ -22,6 +24,7 @@ type Sorts struct {
 	FloatSort   z3.Sort
 	UnknownSort z3.Sort
 	ComplexSort z3.Sort
+	SymPtrSort  z3.Sort
 }
 
 func (ctx *AnalysisContext) PushBasicBlock(bb *ssa.BasicBlock) {

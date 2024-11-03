@@ -4,7 +4,9 @@ import (
 	"github.com/aclements/go-z3/z3"
 	"go/constant"
 	"go/token"
+	"go/types"
 	ssa2 "golang.org/x/tools/go/ssa"
+	"symbolic_execution_course/smt/memory"
 )
 
 func BuildAnalysisContext(function *ssa2.Function, z3ctx *z3.Context) *AnalysisContext {
@@ -12,15 +14,21 @@ func BuildAnalysisContext(function *ssa2.Function, z3ctx *z3.Context) *AnalysisC
 		IntSort:     z3ctx.IntSort(),
 		FloatSort:   z3ctx.FloatSort(11, 53), // todo
 		UnknownSort: z3ctx.UninterpretedSort("unknown"),
+		SymPtrSort:  z3ctx.UninterpretedSort("sym-ptr"),
 	}
 
 	sorts.ComplexSort = z3ctx.ArraySort(sorts.IntSort, sorts.FloatSort)
+
+	memoryInst := memory.Memory{
+		Cells: make(map[*z3.Uninterpreted]*memory.SymMemoryCell),
+	}
 
 	ctx := &AnalysisContext{
 		Z3ctx:       z3ctx,
 		Constraints: []Formula{},
 		Sorts:       sorts,
 		Args:        make(map[string]z3.Value),
+		Memory:      memoryInst,
 	}
 
 	returnType := function.Signature.Results().At(0).Type()
@@ -28,17 +36,36 @@ func BuildAnalysisContext(function *ssa2.Function, z3ctx *z3.Context) *AnalysisC
 		return nil
 	}
 
-	for i := 0; i < function.Signature.Params().Len(); i++ {
-		argName := function.Signature.Params().At(i).Name()
-		argType := ctx.TypeToSort(function.Signature.Params().At(i).Type())
-		ctx.Args[argName] = z3ctx.Const(argName, argType)
-	}
+	initializeArgs(function, z3ctx, ctx)
 
 	ctx.ResultValue = z3ctx.FreshConst("result", ctx.TypeToSort(returnType))
 
 	visitFunction(*function, ctx)
 
 	return ctx
+}
+
+func initializeArgs(function *ssa2.Function, z3ctx *z3.Context, ctx *AnalysisContext) {
+	for i := 0; i < function.Signature.Params().Len(); i++ {
+		argName := function.Signature.Params().At(i).Name()
+		argType := function.Signature.Params().At(i).Type()
+
+		switch argType.(type) {
+		case *types.Array:
+			arrType := argType.(*types.Array)
+			elemType := arrType.Elem()
+			elemSort := ctx.TypeToSort(elemType)
+			ctx.Args[argName] = ctx.NewArray(elemSort, -1)
+		case *types.Slice:
+			arrType := argType.(*types.Slice)
+			elemType := arrType.Elem()
+			elemSort := ctx.TypeToSort(elemType)
+			ctx.Args[argName] = ctx.NewArray(elemSort, -1)
+		default:
+			argSort := ctx.TypeToSort(argType)
+			ctx.Args[argName] = z3ctx.Const(argName, argSort)
+		}
+	}
 }
 
 func visitFunction(node ssa2.Function, ctx *AnalysisContext) {
@@ -67,8 +94,6 @@ func visitBlock(block *ssa2.BasicBlock, ctx *AnalysisContext) Formula {
 
 func visitValue(value ssa2.Value, ctx *AnalysisContext) z3.Value {
 	switch value.(type) {
-	case *ssa2.Alloc:
-		return nil
 	case *ssa2.Phi:
 		return visitPhi(value.(*ssa2.Phi), ctx)
 	case *ssa2.Call:
@@ -83,57 +108,43 @@ func visitValue(value ssa2.Value, ctx *AnalysisContext) z3.Value {
 			case "imag":
 				arg := call.Call.Args[0]
 				return visitComplexImag(arg, ctx)
+
+			case "len":
+				arg := visitValue(call.Call.Args[0], ctx)
+				return ctx.GetArrayLen(arg.(*z3.Uninterpreted))
 			}
 		}
-
-		return nil
 	case *ssa2.BinOp:
 		return visitBinOp(value.(*ssa2.BinOp), ctx)
 	case *ssa2.UnOp:
-		return nil
-	case *ssa2.ChangeType:
-		return nil
+		return visitUnOp(value.(*ssa2.UnOp), ctx)
 	case *ssa2.Convert:
 		return visitValue(value.(*ssa2.Convert).X, ctx)
-	case *ssa2.MultiConvert:
-		return nil
-	case *ssa2.ChangeInterface:
-		return nil
-	case *ssa2.MakeClosure:
-		return nil
-	case *ssa2.MakeMap:
-		return nil
-	case *ssa2.MakeChan:
-		return nil
-	case *ssa2.MakeSlice:
-		return nil
-	case *ssa2.Slice:
-		return nil
-	case *ssa2.FieldAddr:
-		return nil
-	case *ssa2.Index:
-		return nil
-	case *ssa2.Lookup:
-		return nil
-	case *ssa2.Select:
-		return nil
-	case *ssa2.Range:
-		return nil
-	case *ssa2.Next:
-		return nil
-	case *ssa2.TypeAssert:
-		return nil
-	case *ssa2.Extract:
-		return nil
 	case *ssa2.Const:
 		return visitConst(value.(*ssa2.Const), ctx)
 	case *ssa2.Parameter:
 		return visitParameter(value.(*ssa2.Parameter), ctx)
-	default:
-		println("unknown value", value.String())
-		return nil
-
 	}
+
+	println("unknown value", value.String())
+	return nil
+}
+
+func visitUnOp(op *ssa2.UnOp, ctx *AnalysisContext) z3.Value {
+	switch op.Op {
+	case token.MUL:
+		return visitDerefValue(op, ctx)
+	}
+
+	return nil
+}
+
+func visitDerefValue(op *ssa2.UnOp, ctx *AnalysisContext) z3.Value {
+	indexAddr := op.X.(*ssa2.IndexAddr)
+	arrayId := visitValue(indexAddr.X, ctx)
+	indexValue := visitValue(indexAddr.Index, ctx)
+
+	return ctx.GetArrayValue(arrayId.(*z3.Uninterpreted)).Select(indexValue)
 }
 
 func visitComplexReal(arg ssa2.Value, ctx *AnalysisContext) z3.Value {

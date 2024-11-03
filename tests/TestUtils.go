@@ -28,10 +28,15 @@ func SymbolicMachineTest(
 
 	if err != nil {
 		t.Fatal(err)
+		return
 	}
 	if res != true {
 		t.Error("unsat!")
+		return
 	}
+
+	println("model:")
+	println(solver.Model().String())
 }
 
 func addTestConstraints(ctx *smt.AnalysisContext, solver *z3.Solver, args map[string]any, expected any) {
