@@ -70,3 +70,24 @@ func (ctx *AnalysisContext) ComplexMul(left Z3Complex, right Z3Complex) Z3Comple
 func (ctx *AnalysisContext) ComplexEq(left Z3Complex, right Z3Complex) z3.Bool {
 	return ctx.ComplexGetReal(left).Eq(ctx.ComplexGetReal(right)).And(ctx.ComplexGetImag(left).Eq(ctx.ComplexGetImag(right)))
 }
+
+func (ctx *AnalysisContext) ComplexDiv(n Z3Complex, m Z3Complex) Z3Complex {
+	realN := ctx.ComplexGetReal(n)
+	realM := ctx.ComplexGetReal(m)
+	imagN := ctx.ComplexGetImag(n)
+	imagM := ctx.ComplexGetImag(m)
+
+	ratio1 := imagM.Div(realM)
+	denom1 := realM.Add(ratio1.Mul(imagM))
+	e1 := realN.Add(imagN.Mul(ratio1)).Div(denom1)
+	f1 := imagN.Sub(realN.Mul(ratio1)).Div(denom1)
+
+	ratio2 := realM.Div(imagM)
+	denom2 := imagM.Add(ratio2.Mul(realM))
+	e2 := realN.Mul(ratio2).Add(imagN).Div(denom2)
+	f2 := imagN.Mul(ratio2).Sub(realN).Div(denom2)
+
+	return ctx.newComplex(
+		(realN.Abs().GE(imagM.Abs())).IfThenElse(e1, e2).(z3.Float),
+		(realN.Abs().GE(imagM.Abs())).IfThenElse(f1, f2).(z3.Float))
+}

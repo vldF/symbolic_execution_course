@@ -83,7 +83,7 @@ func (ctx *AnalysisContext) Div(left z3.Value, right z3.Value) z3.Value {
 		right,
 		func(first z3.Float, second z3.Float) z3.Value { return first.Div(second) },
 		func(first z3.Int, second z3.Int) z3.Value { return first.Div(second) },
-		nil)
+		ctx.ComplexDiv)
 }
 
 func (ctx *AnalysisContext) Lt(left z3.Value, right z3.Value) z3.Value {
