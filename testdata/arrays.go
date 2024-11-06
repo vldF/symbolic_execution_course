@@ -1,4 +1,4 @@
-package main
+package testdata
 
 func compareElement(array []int, index int, value int) int {
 	if index < 0 || index >= len(array) {

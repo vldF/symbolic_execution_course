@@ -1,4 +1,4 @@
-package main
+package testdata
 
 func basicComplexOperations(a complex128, b complex128) complex128 {
 	if real(a) > real(b) {
