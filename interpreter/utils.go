@@ -36,14 +36,26 @@ func FloatToString(f z3.Float) string {
 	return fmt.Sprintf("%d", float)
 }
 
-func (ctx *Context) GoToZ3Value(v any) z3.Value {
+func (ctx *Context) GoToZ3Value(v any) Z3Value {
 	switch casted := v.(type) {
 	case int, int64, int32, int16, int8, uint, uint64, uint32, uint16, uint8:
-		return ctx.Z3Context.FromInt(int64(casted.(int)), ctx.TypesContext.IntSort).(z3.Int).ToBV(ctx.TypesContext.IntBits)
+		bv := ctx.Z3Context.FromInt(int64(casted.(int)), ctx.TypesContext.IntSort).(z3.BV)
+		return Z3Value{
+			Context: ctx,
+			Value:   bv,
+		}
 	case float64, float32:
-		return ctx.Z3Context.FromFloat64(casted.(float64), ctx.TypesContext.FloatSort)
+		float := ctx.Z3Context.FromFloat64(casted.(float64), ctx.TypesContext.FloatSort)
+		return Z3Value{
+			Context: ctx,
+			Value:   float,
+		}
 	case bool:
-		return ctx.Z3Context.FromBool(casted)
+		b := ctx.Z3Context.FromBool(casted)
+		return Z3Value{
+			Context: ctx,
+			Value:   b,
+		}
 	//case complex128:
 	//	return ctx.NewComplex(casted)
 	//case complex64:

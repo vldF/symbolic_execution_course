@@ -7,10 +7,11 @@ import (
 	"go/types"
 	"golang.org/x/tools/go/ssa"
 	"math/bits"
+	"slices"
 	"symbolic_execution_course/heap"
 )
 
-func Interpret(function *ssa.Function) {
+func Interpret(function *ssa.Function) *Context {
 	z3Config := z3.NewContextConfig()
 	z3Context := z3.NewContext(z3Config)
 
@@ -30,6 +31,7 @@ func Interpret(function *ssa.Function) {
 		&typesContext,
 		nil,
 		states,
+		make([]*State, 0),
 	}
 
 	ret := getReturnConst(function, &context)
@@ -48,12 +50,18 @@ func Interpret(function *ssa.Function) {
 
 		processState(nextState, &context)
 	}
+
+	return &context
 }
 
 func processState(state *State, ctx *Context) {
-	nextState := visitInstruction(state.Statement, state, ctx)
+	nextStates := visitInstruction(state.Statement, state, ctx)
 
-	ctx.States.Insert(nextState)
+	if nextStates != nil {
+		for _, nextState := range nextStates {
+			ctx.States.Insert(nextState)
+		}
+	}
 }
 
 func getReturnConst(function *ssa.Function, ctx *Context) z3.Value {
@@ -99,13 +107,13 @@ func addInitState(function *ssa.Function, ctx *Context) {
 	ctx.States.Insert(&initState)
 }
 
-func visitInstruction(instr ssa.Instruction, prevState *State, ctx *Context) *State {
+func visitInstruction(instr ssa.Instruction, prevState *State, ctx *Context) []*State {
 	switch casted := instr.(type) {
 	case *ssa.Return:
-		return visitReturn(casted, prevState, ctx)
+		return []*State{visitReturn(casted, prevState, ctx)}
 	}
 
-	return prevState
+	return getNextState(prevState)
 }
 
 func visitReturn(instr *ssa.Return, state *State, ctx *Context) *State {
@@ -115,14 +123,15 @@ func visitReturn(instr *ssa.Return, state *State, ctx *Context) *State {
 	returnValue := visitValue(instr.Results[0], state, ctx)
 	newState.Constraints = append(newState.Constraints, ctx.ReturnValue.AsEq(returnValue))
 
-	handleDone(newState, returnValue, ctx)
+	handleDone(newState, ctx)
 
 	return nil
 }
 
-func handleDone(state *State, returnValue Value, ctx *Context) {
-	fmt.Println("handled!")
+func handleDone(state *State, ctx *Context) {
+	ctx.Results = append(ctx.Results, state)
 
+	fmt.Println("handled!")
 	fmt.Println("Memory:", state.Memory)
 	fmt.Println("Constraints:", state.Constraints)
 	fmt.Println("Statement", state.Statement)
@@ -134,9 +143,31 @@ func visitValue(val ssa.Value, state *State, ctx *Context) Value {
 		return visitBinOp(casted, state, ctx)
 	case *ssa.Parameter:
 		return (state.Memory)[casted.Name()]
+	case *ssa.Const:
+		return visitConst(casted, ctx)
 	}
 
 	panic("Unsupported value")
+}
+
+func visitConst(value *ssa.Const, ctx *Context) Value {
+	switch casted := value.Type().(type) {
+	case *types.Basic:
+		switch casted.Kind() {
+		case types.Int, types.Int64, types.Int16, types.Int32, types.Int8, types.UntypedInt:
+			return &ConcreteIntValue{
+				ctx,
+				value.Int64(),
+			}
+		case types.Float64, types.Float32, types.UntypedFloat:
+			return &ConcreteFloatValue{
+				ctx,
+				value.Float64(),
+			}
+		}
+	}
+
+	panic("Unsupported type")
 }
 
 func visitBinOp(expr *ssa.BinOp, state *State, ctx *Context) Value {
@@ -155,4 +186,34 @@ func visitBinOp(expr *ssa.BinOp, state *State, ctx *Context) Value {
 	default:
 		panic("unreachable")
 	}
+}
+
+func getNextState(state *State) []*State {
+	block := state.Statement.Block()
+	idx := slices.Index(block.Instrs, state.Statement)
+
+	result := make([]*State, 2)
+
+	if idx+1 >= len(block.Instrs) {
+		switch state.Statement.(type) {
+		case *ssa.Return:
+		case *ssa.If:
+			state1 := state.Copy()
+			state1.Statement = block.Succs[0].Instrs[0]
+			state2 := state.Copy()
+			state2.Statement = block.Succs[1].Instrs[0]
+
+			result = append(result, state1, state2)
+		default:
+			nextState := state.Copy()
+			nextState.Statement = block.Succs[0].Instrs[0]
+			result = append(result, nextState)
+		}
+	} else {
+		nextState := state.Copy()
+		nextState.Statement = block.Instrs[idx+1]
+		result = append(result, nextState)
+	}
+
+	return result
 }

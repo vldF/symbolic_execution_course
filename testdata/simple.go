@@ -1,14 +1,14 @@
 package testdata
 
-func idInt(x int) int {
+func IdInt(x int) int {
 	return x
 }
 
-func idFloat(x float64) float64 {
+func IdFloat(x float64) float64 {
 	return x
 }
 
-func simpleExpressionInt(x int) int {
+func SimpleExpressionInt(x int) int {
 	t1 := x
 	t2 := t1 + 1
 	t3 := t2 + 2

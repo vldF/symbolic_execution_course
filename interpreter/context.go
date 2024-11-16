@@ -10,6 +10,7 @@ type Context struct {
 	TypesContext *TypesContext
 	ReturnValue  *Z3Value
 	States       *heap.Heap[*State]
+	Results      []*State
 }
 
 type TypesContext struct {

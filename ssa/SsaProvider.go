@@ -22,7 +22,7 @@ func GetSsa(code string) *ssa.Package {
 	files := []*ast.File{f}
 	pkg := types.NewPackage("analyzee", "")
 	ssaPackage, _, err := ssautil.BuildPackage(
-		&types.Config{Importer: importer.Default()}, fset, pkg, files, ssa.SanityCheckFunctions)
+		&types.Config{Importer: importer.Default()}, fset, pkg, files, ssa.SanityCheckFunctions|ssa.PrintFunctions)
 	if err != nil {
 		fmt.Println(err)
 		return nil

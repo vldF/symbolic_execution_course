@@ -304,8 +304,7 @@ func (left *Z3Value) AsEq(right Value) BoolPredicate {
 }
 
 func (left *ConcreteIntValue) asZ3IntValue() z3.BV {
-	return left.Context.Z3Context.FromInt(left.Value, left.Context.TypesContext.IntSort).(z3.Int).
-		ToBV(left.Context.TypesContext.IntBits)
+	return left.Context.Z3Context.FromInt(left.Value, left.Context.TypesContext.IntSort).(z3.BV)
 }
 
 func (left *ConcreteFloatValue) asZ3IntValue() z3.BV {
@@ -339,7 +338,7 @@ func (left *ConcreteFloatValue) IsFloat() bool {
 }
 
 func (left *Z3Value) IsFloat() bool {
-	if _, ok := left.Value.(*z3.Float); ok {
+	if _, ok := left.Value.(z3.Float); ok {
 		return true
 	}
 
