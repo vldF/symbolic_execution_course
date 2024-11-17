@@ -138,6 +138,11 @@ func handleDone(state *State, ctx *Context) {
 }
 
 func visitValue(val ssa.Value, state *State, ctx *Context) Value {
+	name := val.Name()
+	if precalculatedValue := state.Memory[name]; precalculatedValue != nil {
+		return precalculatedValue
+	}
+
 	switch casted := val.(type) {
 	case *ssa.BinOp:
 		return visitBinOp(casted, state, ctx)
@@ -174,18 +179,23 @@ func visitBinOp(expr *ssa.BinOp, state *State, ctx *Context) Value {
 	left := visitValue(expr.X, state, ctx).(NumericValue)
 	right := visitValue(expr.Y, state, ctx).(NumericValue)
 
+	var result Value
 	switch expr.Op {
 	case token.ADD:
-		return left.Add(right).(Value)
+		result = left.Add(right).(Value)
 	case token.SUB:
-		return left.Add(right).(Value)
+		result = left.Add(right).(Value)
 	case token.MUL:
-		return left.Add(right).(Value)
+		result = left.Add(right).(Value)
 	case token.QUO:
-		return left.Add(right).(Value)
+		result = left.Add(right).(Value)
 	default:
 		panic("unreachable")
 	}
+
+	rememberValue(expr.Name(), result, state)
+
+	return result
 }
 
 func getNextState(state *State) []*State {
@@ -216,4 +226,8 @@ func getNextState(state *State) []*State {
 	}
 
 	return result
+}
+
+func rememberValue(name string, value Value, state *State) {
+	state.Memory[name] = value
 }
