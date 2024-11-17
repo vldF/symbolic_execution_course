@@ -5,13 +5,14 @@ import (
 )
 
 type State struct {
-	Constraints []BoolPredicate
-	Memory      map[string]Value
-	Statement   ssa.Instruction
+	Constraints        []BoolValue
+	Memory             map[string]Value
+	Statement          ssa.Instruction
+	VisitedBasicBlocks []int
 }
 
 func (state *State) Copy() *State {
-	constraints := make([]BoolPredicate, len(state.Constraints))
+	constraints := make([]BoolValue, len(state.Constraints))
 	copy(constraints, state.Constraints)
 
 	memory := make(map[string]Value)
@@ -19,9 +20,13 @@ func (state *State) Copy() *State {
 		memory[k] = v
 	}
 
+	blocks := make([]int, len(state.VisitedBasicBlocks))
+	copy(blocks, state.VisitedBasicBlocks)
+
 	return &State{
-		Constraints: constraints,
-		Memory:      memory,
-		Statement:   state.Statement,
+		Constraints:        constraints,
+		Memory:             memory,
+		Statement:          state.Statement,
+		VisitedBasicBlocks: blocks,
 	}
 }

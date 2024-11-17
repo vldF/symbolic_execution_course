@@ -18,24 +18,24 @@ func SymbolicMachineTest(
 	t *testing.T,
 ) {
 	context := runAnalysisFor(fileName, funcName)
-	for _, resState := range context.Results {
-		solver := z3.NewSolver(context.Z3Context)
-		addAsserts(resState, solver)
-		addArgs(args, resState, solver, context)
-		addResultConstraint(solver, expected, context)
+	solver := z3.NewSolver(context.Z3Context)
+	addAsserts(context.Results, solver)
+	addArgs(args, context.Results[0], solver, context)
+	addResultConstraint(solver, expected, context)
 
-		println("solver with test constraints:", solver.String())
-		println()
+	println("solver with test constraints:", solver.String())
+	println()
 
-		if ok, err := solver.Check(); !ok {
-			println("Unsat!")
-			println(err)
-			t.Fail()
-			return
-		}
-
-		println("Model:", solver.Model())
+	if ok, err := solver.Check(); !ok {
+		println("Unsat!")
+		println(err)
+		t.Fail()
+		return
 	}
+
+	model := solver.Model()
+	println("Model:", model.String())
+	//println("Result:", model.Eval(context.ReturnValue.Value, true).(z3.BV).String())
 }
 
 func runAnalysisFor(fileName string, functionName string) *interpreter.Context {
@@ -57,26 +57,47 @@ func runAnalysisFor(fileName string, functionName string) *interpreter.Context {
 	return interpreter.Interpret(fun)
 }
 
-func addAsserts(state *interpreter.State, solver *z3.Solver) {
-	for _, constraint := range state.Constraints {
-		solver.Assert(constraint.Value)
+func addAsserts(states []*interpreter.State, solver *z3.Solver) {
+	results := make([]z3.Bool, 0)
+	for _, state := range states {
+		if len(state.Constraints) == 0 {
+			continue
+		}
+
+		stateRes := state.Constraints[0].AsBool().AsZ3Value().Value.(z3.Bool)
+		for _, constraint := range state.Constraints[1:] {
+			asBool := constraint.AsBool().AsZ3Value().Value.(z3.Bool)
+			stateRes = stateRes.And(asBool)
+		}
+
+		results = append(results, stateRes)
 	}
+
+	if len(results) == 0 {
+		return
+	}
+
+	solver.Assert(results[0].Or(results[1:]...))
 
 	println("Solver constraints:", solver.String())
 	println()
 }
 
 func addArgs(args map[string]any, state *interpreter.State, solver *z3.Solver, ctx *interpreter.Context) {
+	res := make([]z3.Bool, 0)
+
 	for argName, argValue := range args {
 		argConst := state.Memory[argName]
 		z3Value := ctx.GoToZ3Value(argValue)
-		constraint := argConst.AsEq(&z3Value)
+		constraint := argConst.Eq(&z3Value).AsZ3Value().Value.(z3.Bool)
 
-		solver.Assert(constraint.Value)
+		res = append(res, constraint)
 	}
+
+	solver.Assert(res[0].And(res[1:]...))
 }
 
 func addResultConstraint(solver *z3.Solver, expectedResult any, ctx *interpreter.Context) {
 	value := ctx.GoToZ3Value(expectedResult)
-	solver.Assert(ctx.ReturnValue.AsEq(&value).Value)
+	solver.Assert(ctx.ReturnValue.Eq(&value).AsZ3Value().Value.(z3.Bool))
 }

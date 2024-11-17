@@ -57,10 +57,12 @@ func Interpret(function *ssa.Function) *Context {
 func processState(state *State, ctx *Context) {
 	nextStates := visitInstruction(state.Statement, state, ctx)
 
-	if nextStates != nil {
-		for _, nextState := range nextStates {
-			ctx.States.Insert(nextState)
+	for _, nextState := range nextStates {
+		if nextState == nil {
+			continue
 		}
+
+		ctx.States.Insert(nextState)
 	}
 }
 
@@ -83,7 +85,7 @@ func addInitState(function *ssa.Function, ctx *Context) {
 		return
 	}
 
-	constraints := make([]BoolPredicate, 0)
+	constraints := make([]BoolValue, 0)
 	memory := make(map[string]Value)
 	entry := function.DomPreorder()[0]
 
@@ -99,9 +101,10 @@ func addInitState(function *ssa.Function, ctx *Context) {
 	}
 
 	initState := State{
-		Constraints: constraints,
-		Memory:      memory,
-		Statement:   entry.Instrs[0],
+		Constraints:        constraints,
+		Memory:             memory,
+		Statement:          entry.Instrs[0],
+		VisitedBasicBlocks: []int{entry.Index},
 	}
 
 	ctx.States.Insert(&initState)
@@ -111,9 +114,22 @@ func visitInstruction(instr ssa.Instruction, prevState *State, ctx *Context) []*
 	switch casted := instr.(type) {
 	case *ssa.Return:
 		return []*State{visitReturn(casted, prevState, ctx)}
+	case *ssa.If:
+		return visitIf(casted, prevState, ctx)
 	}
 
-	return getNextState(prevState)
+	return getNextStates(prevState)
+}
+
+func visitIf(casted *ssa.If, state *State, ctx *Context) []*State {
+	nextStates := getNextStates(state)
+
+	cond := visitValue(casted.Cond, state, ctx).(BoolValue)
+
+	nextStates[0].Constraints = append(nextStates[0].Constraints, cond)
+	nextStates[1].Constraints = append(nextStates[1].Constraints, cond.Not())
+
+	return nextStates
 }
 
 func visitReturn(instr *ssa.Return, state *State, ctx *Context) *State {
@@ -121,7 +137,7 @@ func visitReturn(instr *ssa.Return, state *State, ctx *Context) *State {
 	newState.Statement = instr
 
 	returnValue := visitValue(instr.Results[0], state, ctx)
-	newState.Constraints = append(newState.Constraints, ctx.ReturnValue.AsEq(returnValue))
+	newState.Constraints = append(newState.Constraints, ctx.ReturnValue.Eq(returnValue))
 
 	handleDone(newState, ctx)
 
@@ -150,16 +166,46 @@ func visitValue(val ssa.Value, state *State, ctx *Context) Value {
 		return (state.Memory)[casted.Name()]
 	case *ssa.Const:
 		return visitConst(casted, ctx)
+	case *ssa.Phi:
+		return visitPhi(casted, state, ctx)
+	case *ssa.Convert:
+		return visitConvert(casted, state, ctx)
 	}
 
-	panic("Unsupported value")
+	panic("Unsupported value" + val.String())
+}
+
+func visitConvert(casted *ssa.Convert, state *State, ctx *Context) Value {
+	value := visitValue(casted.X, state, ctx)
+	switch tpe := casted.Type().(type) {
+	case *types.Basic:
+		switch tpe.Kind() {
+		case types.Int, types.Int64, types.Int16, types.Int32, types.Int8, types.UntypedInt:
+			return value.(ArithmeticValue)
+		case types.Float64, types.Float32, types.UntypedFloat:
+			return value.(ArithmeticValue)
+		}
+	}
+
+	panic("Unsupported cast" + casted.String())
+}
+
+func visitPhi(casted *ssa.Phi, state *State, ctx *Context) Value {
+	for idx, pred := range casted.Block().Preds {
+		if slices.Index(state.VisitedBasicBlocks, pred.Index) != -1 {
+			return visitValue(casted.Edges[idx], state, ctx)
+		}
+	}
+
+	panic("can't determine the right edge")
 }
 
 func visitConst(value *ssa.Const, ctx *Context) Value {
 	switch casted := value.Type().(type) {
 	case *types.Basic:
 		switch casted.Kind() {
-		case types.Int, types.Int64, types.Int16, types.Int32, types.Int8, types.UntypedInt:
+		case types.Int, types.Int64, types.Int16, types.Int32, types.Int8,
+			types.UntypedInt, types.Uint, types.Uint8, types.Uint16, types.Uint32:
 			return &ConcreteIntValue{
 				ctx,
 				value.Int64(),
@@ -172,25 +218,49 @@ func visitConst(value *ssa.Const, ctx *Context) Value {
 		}
 	}
 
-	panic("Unsupported type")
+	panic("Unsupported type" + value.String())
 }
 
 func visitBinOp(expr *ssa.BinOp, state *State, ctx *Context) Value {
-	left := visitValue(expr.X, state, ctx).(NumericValue)
-	right := visitValue(expr.Y, state, ctx).(NumericValue)
+	left := visitValue(expr.X, state, ctx)
+	right := visitValue(expr.Y, state, ctx)
 
 	var result Value
 	switch expr.Op {
 	case token.ADD:
-		result = left.Add(right).(Value)
+		result = left.(ArithmeticValue).Add(right.(ArithmeticValue))
 	case token.SUB:
-		result = left.Add(right).(Value)
+		result = left.(ArithmeticValue).Sub(right.(ArithmeticValue))
 	case token.MUL:
-		result = left.Add(right).(Value)
+		result = left.(ArithmeticValue).Mul(right.(ArithmeticValue))
 	case token.QUO:
-		result = left.Add(right).(Value)
+		result = left.(ArithmeticValue).Div(right.(ArithmeticValue))
+	case token.GTR:
+		result = left.(ArithmeticValue).Gt(right.(ArithmeticValue))
+	case token.GEQ:
+		result = left.(ArithmeticValue).Ge(right.(ArithmeticValue))
+	case token.LSS:
+		result = left.(ArithmeticValue).Lt(right.(ArithmeticValue))
+	case token.LEQ:
+		result = left.(ArithmeticValue).Le(right.(ArithmeticValue))
+	case token.REM:
+		result = left.(ArithmeticValue).Rem(right.(ArithmeticValue))
+	case token.EQL:
+		result = left.(ArithmeticValue).Eq(right.(ArithmeticValue))
+	case token.NEQ:
+		result = left.(ArithmeticValue).NotEq(right.(ArithmeticValue))
+	case token.OR:
+		result = left.Or(right)
+	case token.AND:
+		result = left.And(right)
+	case token.XOR:
+		result = left.Xor(right)
+	case token.SHL:
+		result = left.(ArithmeticValue).Shl(right.(ArithmeticValue))
+	case token.SHR:
+		result = left.(ArithmeticValue).Shr(right.(ArithmeticValue))
 	default:
-		panic("unreachable")
+		panic("unreachable" + expr.String())
 	}
 
 	rememberValue(expr.Name(), result, state)
@@ -198,11 +268,11 @@ func visitBinOp(expr *ssa.BinOp, state *State, ctx *Context) Value {
 	return result
 }
 
-func getNextState(state *State) []*State {
+func getNextStates(state *State) []*State {
 	block := state.Statement.Block()
 	idx := slices.Index(block.Instrs, state.Statement)
 
-	result := make([]*State, 2)
+	result := make([]*State, 0)
 
 	if idx+1 >= len(block.Instrs) {
 		switch state.Statement.(type) {
@@ -210,13 +280,17 @@ func getNextState(state *State) []*State {
 		case *ssa.If:
 			state1 := state.Copy()
 			state1.Statement = block.Succs[0].Instrs[0]
+			state1.VisitedBasicBlocks = append(state1.VisitedBasicBlocks, block.Succs[0].Index)
+
 			state2 := state.Copy()
 			state2.Statement = block.Succs[1].Instrs[0]
+			state2.VisitedBasicBlocks = append(state2.VisitedBasicBlocks, block.Succs[1].Index)
 
 			result = append(result, state1, state2)
 		default:
 			nextState := state.Copy()
 			nextState.Statement = block.Succs[0].Instrs[0]
+			nextState.VisitedBasicBlocks = append(nextState.VisitedBasicBlocks, block.Succs[0].Index)
 			result = append(result, nextState)
 		}
 	} else {
