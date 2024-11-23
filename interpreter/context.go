@@ -11,6 +11,7 @@ type Context struct {
 	ReturnValue  *Z3Value
 	States       *heap.Heap[*State]
 	Results      []*State
+	Memory       *Memory
 }
 
 type TypesContext struct {
@@ -18,5 +19,6 @@ type TypesContext struct {
 	IntSort   z3.Sort
 	FloatSort z3.Sort
 
-	UnknownSort z3.Sort
+	StructPointer z3.Sort
+	UnknownSort   z3.Sort
 }

@@ -3,6 +3,7 @@ package tests
 import (
 	"fmt"
 	"github.com/aclements/go-z3/z3"
+	"go/types"
 	"io"
 	"os"
 	"symbolic_execution_course/interpreter"
@@ -10,18 +11,38 @@ import (
 	"testing"
 )
 
-func SymbolicMachineTest(
+func SymbolicMachineUnsatTest(
 	fileName string,
 	funcName string,
 	args map[string]any,
 	expected any,
 	t *testing.T,
 ) {
-	context := runAnalysisFor(fileName, funcName)
-	solver := z3.NewSolver(context.Z3Context)
-	addAsserts(context.Results, solver)
-	addArgs(args, context.Results[0], solver, context)
-	addResultConstraint(solver, expected, context)
+	solver := symbolicMachineTest(fileName, funcName, args, expected)
+
+	println("solver with test constraints:", solver.String())
+	println()
+
+	if ok, err := solver.Check(); !ok {
+		println("Unsat! That's OK")
+		println(err)
+		return
+	}
+
+	model := solver.Model()
+	println("Model:", model.String())
+	println("test expected to be unsat")
+	t.Fail()
+}
+
+func SymbolicMachineSatTest(
+	fileName string,
+	funcName string,
+	args map[string]any,
+	expected any,
+	t *testing.T,
+) {
+	solver := symbolicMachineTest(fileName, funcName, args, expected)
 
 	println("solver with test constraints:", solver.String())
 	println()
@@ -35,7 +56,16 @@ func SymbolicMachineTest(
 
 	model := solver.Model()
 	println("Model:", model.String())
-	//println("Result:", model.Eval(context.ReturnValue.Value, true).(z3.BV).String())
+}
+
+func symbolicMachineTest(fileName string, funcName string, args map[string]any, expected any) *z3.Solver {
+	context := runAnalysisFor(fileName, funcName)
+	solver := z3.NewSolver(context.Z3Context)
+	addAsserts(context.Results, solver)
+	addArgs(args, context.Results[0], solver, context)
+	addResultConstraint(solver, expected, context)
+
+	return solver
 }
 
 func runAnalysisFor(fileName string, functionName string) *interpreter.Context {
@@ -87,11 +117,41 @@ func addArgs(args map[string]any, state *interpreter.State, solver *z3.Solver, c
 	res := make([]z3.Bool, 0)
 
 	for argName, argValue := range args {
-		argConst := state.Memory[argName]
+		switch argCasted := argValue.(type) {
+		case StructArg:
+			//argSortPtr := ctx.Memory.StructToSortPtr[argCasted.name]
+			argPtr := state.Stack[argName]
+			for _, fieldValue := range argCasted.fields {
+				switch castedFieldValue := fieldValue.(type) {
+				case int64, int, int32, int16, int8:
+					cell := ctx.Memory.Mem[interpreter.IntPtr].(*interpreter.PrimitiveValueCell)
+					constraint := cell.Z3Arr.Select(argPtr.(interpreter.StructPointer).Ptr.AsZ3Value().Value).(z3.BV).Eq(ctx.GoToZ3Value(castedFieldValue).Value.(z3.BV))
+					solver.Assert(constraint)
+				case float32, float64:
+					cell := ctx.Memory.Mem[interpreter.FloatPtr].(*interpreter.PrimitiveValueCell)
+					float := cell.Z3Arr.Select(argPtr.(interpreter.StructPointer).Ptr.AsZ3Value().Value).(z3.Float)
+					constraint := float.Eq(ctx.GoToZ3Value(castedFieldValue).Value.(z3.Float))
+					solver.Assert(constraint)
+				}
+			}
+
+			continue
+		}
+
+		argConst := state.Stack[argName]
 		z3Value := ctx.GoToZ3Value(argValue)
 		constraint := argConst.Eq(&z3Value).AsZ3Value().Value.(z3.Bool)
 
 		res = append(res, constraint)
+	}
+
+	if len(res) == 0 {
+		return
+	}
+
+	if len(res) == 1 {
+		solver.Assert(res[0])
+		return
 	}
 
 	solver.Assert(res[0].And(res[1:]...))
@@ -100,4 +160,10 @@ func addArgs(args map[string]any, state *interpreter.State, solver *z3.Solver, c
 func addResultConstraint(solver *z3.Solver, expectedResult any, ctx *interpreter.Context) {
 	value := ctx.GoToZ3Value(expectedResult)
 	solver.Assert(ctx.ReturnValue.Eq(&value).AsZ3Value().Value.(z3.Bool))
+}
+
+type StructArg struct {
+	name        string
+	fields      map[int]any
+	fieldsTypes map[int]types.BasicKind
 }

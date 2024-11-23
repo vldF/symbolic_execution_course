@@ -7,7 +7,7 @@ import (
 )
 
 func (ctx *Context) TypeToSort(t types.Type) z3.Sort {
-	switch t.(type) {
+	switch casted := t.(type) {
 	case *types.Basic:
 		switch t.(*types.Basic).Kind() {
 		case types.Int, types.Int8, types.Int16, types.Int32, types.Int64, types.Byte:
@@ -17,14 +17,29 @@ func (ctx *Context) TypeToSort(t types.Type) z3.Sort {
 			//case types.UntypedComplex, types.Complex64, types.Complex128:
 			//	return ctx.TypesContext.ComplexSort
 		}
-	case *types.Array:
-		elemType := t.(*types.Array).Elem()
-		return ctx.Z3Context.ArraySort(ctx.TypeToSort(elemType), ctx.TypesContext.IntSort)
-	case *types.Slice:
-		elemType := t.(*types.Slice).Elem()
-		return ctx.Z3Context.ArraySort(ctx.TypeToSort(elemType), ctx.TypesContext.IntSort)
-		//case *types.Struct:
-		//	return ctx.TypesContext.StructSort
+		//case *types.Array:
+		//	elemType := t.(*types.Array).Elem()
+		//	return ctx.Z3Context.ArraySort(ctx.TypeToSort(elemType), ctx.TypesContext.IntSort)
+		//case *types.Slice:
+		//	elemType := t.(*types.Slice).Elem()
+		//	return ctx.Z3Context.ArraySort(ctx.TypeToSort(elemType), ctx.TypesContext.IntSort)
+	case *types.Named:
+		name := casted.Obj().Name()
+		if _, ok := ctx.Memory.StructToSortPtr[name]; ok {
+			return ctx.TypesContext.StructPointer
+		}
+
+		structType := casted.Underlying().(*types.Struct)
+
+		fields := make(map[int]types.BasicKind, 0)
+		fieldsCount := structType.NumFields()
+		for i := 0; i < fieldsCount; i++ {
+			field := structType.Field(i)
+			fields[i] = field.Type().(*types.Basic).Kind()
+		}
+
+		ctx.Memory.NewStruct(name, fields)
+		return ctx.TypesContext.StructPointer
 	}
 
 	return ctx.TypesContext.UnknownSort
@@ -70,7 +85,7 @@ func (ctx *Context) GoToZ3Value(v any) Z3Value {
 	//		arr = arr.Store(z3Idx, z3Val)
 	//	}
 	//
-	//	ctx.Memory.Cells[arrId].Fields[arrayField] = arr
+	//	ctx.Stack.Cells[arrId].Fields[arrayField] = arr
 	//	return arrId
 	default:
 		panic("unsupported argument")

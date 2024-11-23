@@ -6,7 +6,7 @@ import (
 
 type State struct {
 	Constraints        []BoolValue
-	Memory             map[string]Value
+	Stack              map[string]Value
 	Statement          ssa.Instruction
 	VisitedBasicBlocks []int
 }
@@ -16,7 +16,7 @@ func (state *State) Copy() *State {
 	copy(constraints, state.Constraints)
 
 	memory := make(map[string]Value)
-	for k, v := range state.Memory {
+	for k, v := range state.Stack {
 		memory[k] = v
 	}
 
@@ -25,7 +25,7 @@ func (state *State) Copy() *State {
 
 	return &State{
 		Constraints:        constraints,
-		Memory:             memory,
+		Stack:              memory,
 		Statement:          state.Statement,
 		VisitedBasicBlocks: blocks,
 	}

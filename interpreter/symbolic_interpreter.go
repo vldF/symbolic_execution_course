@@ -16,10 +16,11 @@ func Interpret(function *ssa.Function) *Context {
 	z3Context := z3.NewContext(z3Config)
 
 	typesContext := TypesContext{
-		IntBits:     bits.UintSize,
-		IntSort:     z3Context.BVSort(bits.UintSize),
-		FloatSort:   z3Context.FloatSort(11, 53),
-		UnknownSort: z3Context.UninterpretedSort("unknown"),
+		IntBits:       bits.UintSize,
+		IntSort:       z3Context.BVSort(bits.UintSize),
+		FloatSort:     z3Context.FloatSort(11, 53),
+		StructPointer: z3Context.BVSort(bits.UintSize),
+		UnknownSort:   z3Context.UninterpretedSort("unknown"),
 	}
 
 	states := heap.HeapInit[*State](func(state *State, state2 *State) bool {
@@ -27,12 +28,22 @@ func Interpret(function *ssa.Function) *Context {
 	})
 
 	context := Context{
-		z3Context,
-		&typesContext,
-		nil,
-		states,
-		make([]*State, 0),
+		Z3Context:    z3Context,
+		TypesContext: &typesContext,
+		States:       states,
+		Results:      make([]*State, 0),
+		Memory:       nil,
 	}
+	context.Memory = &Memory{
+		context:         &context,
+		Mem:             make(map[sortPointer]interface{}),
+		StructToSortPtr: make(map[string]sortPointer),
+	}
+
+	intArrSort := z3Context.ArraySort(typesContext.IntSort, typesContext.IntSort)
+	floatArrSort := z3Context.ArraySort(typesContext.IntSort, typesContext.FloatSort)
+	context.Memory.Mem[IntPtr] = &PrimitiveValueCell{z3Context.Const("ints", intArrSort).(z3.Array)}
+	context.Memory.Mem[FloatPtr] = &PrimitiveValueCell{z3Context.Const("floats", floatArrSort).(z3.Array)}
 
 	ret := getReturnConst(function, &context)
 	context.ReturnValue = &Z3Value{
@@ -92,17 +103,38 @@ func addInitState(function *ssa.Function, ctx *Context) {
 	for _, param := range function.Params {
 		name := param.Name()
 		sort := ctx.TypeToSort(param.Type())
-		val := Z3Value{
-			Context: ctx,
-			Value:   ctx.Z3Context.Const(name, sort),
-		}
+		switch casted := param.Type().(type) {
+		case *types.Basic:
+			val := Z3Value{
+				Context: ctx,
+				Value:   ctx.Z3Context.Const(name, sort),
+			}
 
-		memory[name] = &val
+			memory[name] = &val
+		case *types.Named:
+			typeName := casted.Obj().Name()
+			struct_ := casted.Underlying().(*types.Struct)
+
+			fields := make(map[int]types.BasicKind)
+			fieldsCount := struct_.NumFields()
+			for i := 0; i < fieldsCount; i++ {
+				fields[i] = struct_.Field(i).Type().(*types.Basic).Kind()
+			}
+
+			ctx.Memory.NewStruct(typeName, fields)
+
+			memory[name] = StructPointer{
+				ctx,
+				ctx.Memory.StructToSortPtr[typeName],
+				ctx.Memory.AllocateStruct(),
+				typeName,
+			}
+		}
 	}
 
 	initState := State{
 		Constraints:        constraints,
-		Memory:             memory,
+		Stack:              memory,
 		Statement:          entry.Instrs[0],
 		VisitedBasicBlocks: []int{entry.Index},
 	}
@@ -116,9 +148,23 @@ func visitInstruction(instr ssa.Instruction, prevState *State, ctx *Context) []*
 		return []*State{visitReturn(casted, prevState, ctx)}
 	case *ssa.If:
 		return visitIf(casted, prevState, ctx)
+	case *ssa.Store:
+		return visitStore(casted, prevState, ctx)
 	}
 
 	return getNextStates(prevState)
+}
+
+func visitStore(casted *ssa.Store, state *State, ctx *Context) []*State {
+	newState := getNextStates(state)[0]
+	//addrValue := visitValue(casted.Addr, state, ctx)
+	storeValue := visitValue(casted.Val, state, ctx)
+
+	//newState.Constraints = append(newState.Constraints, addrValue.Eq(storeValue))
+
+	newState.Stack[casted.Addr.Name()] = storeValue
+
+	return []*State{newState}
 }
 
 func visitIf(casted *ssa.If, state *State, ctx *Context) []*State {
@@ -148,14 +194,14 @@ func handleDone(state *State, ctx *Context) {
 	ctx.Results = append(ctx.Results, state)
 
 	fmt.Println("handled!")
-	fmt.Println("Memory:", state.Memory)
+	fmt.Println("Stack:", state.Stack)
 	fmt.Println("Constraints:", state.Constraints)
 	fmt.Println("Statement", state.Statement)
 }
 
 func visitValue(val ssa.Value, state *State, ctx *Context) Value {
 	name := val.Name()
-	if precalculatedValue := state.Memory[name]; precalculatedValue != nil {
+	if precalculatedValue := state.Stack[name]; precalculatedValue != nil {
 		return precalculatedValue
 	}
 
@@ -163,16 +209,68 @@ func visitValue(val ssa.Value, state *State, ctx *Context) Value {
 	case *ssa.BinOp:
 		return visitBinOp(casted, state, ctx)
 	case *ssa.Parameter:
-		return (state.Memory)[casted.Name()]
+		return visitParameter(casted, state, ctx)
 	case *ssa.Const:
 		return visitConst(casted, ctx)
 	case *ssa.Phi:
 		return visitPhi(casted, state, ctx)
 	case *ssa.Convert:
 		return visitConvert(casted, state, ctx)
+	case *ssa.UnOp:
+		return visitUnary(casted, state, ctx)
+	case *ssa.FieldAddr:
+		return visitFieldAddr(casted, state, ctx)
+	case *ssa.Alloc:
+		return visitAlloc(casted, state, ctx)
 	}
 
-	panic("Unsupported value" + val.String())
+	panic("Unsupported value " + val.String())
+}
+
+func visitAlloc(casted *ssa.Alloc, state *State, ctx *Context) Value {
+	structName := casted.Type().(*types.Pointer).Elem().(*types.Named).Obj().Name()
+	if state.Stack[structName] != nil {
+		return state.Stack[structName]
+	}
+
+	res := &StructPointer{
+		context:    ctx,
+		SortPtr:    ctx.Memory.StructToSortPtr[structName],
+		Ptr:        ctx.Memory.AllocateStruct(),
+		structName: structName,
+	}
+
+	rememberValue(structName, res, state)
+	return res
+}
+
+func visitFieldAddr(casted *ssa.FieldAddr, state *State, ctx *Context) Value {
+	casted.X.Type().(*types.Pointer).Elem().(*types.Named).Obj().Name()
+	structPtr := visitValue(casted.X, state, ctx)
+	fieldIdx := casted.Field
+	field := ctx.Memory.GetStructField(structPtr.(StructPointer), fieldIdx)
+	return field
+}
+
+func visitUnary(casted *ssa.UnOp, state *State, ctx *Context) Value {
+	name := casted.Name()
+	var result Value
+
+	switch casted.Op {
+	case token.MUL:
+		result = visitDereference(casted, state, ctx)
+	}
+
+	rememberValue(name, result, state)
+	return result
+}
+
+func visitDereference(casted *ssa.UnOp, state *State, ctx *Context) Value {
+	return visitValue(casted.X, state, ctx)
+}
+
+func visitParameter(casted *ssa.Parameter, state *State, ctx *Context) Value {
+	return (state.Stack)[casted.Name()]
 }
 
 func visitConvert(casted *ssa.Convert, state *State, ctx *Context) Value {
@@ -303,5 +401,5 @@ func getNextStates(state *State) []*State {
 }
 
 func rememberValue(name string, value Value, state *State) {
-	state.Memory[name] = value
+	state.Stack[name] = value
 }

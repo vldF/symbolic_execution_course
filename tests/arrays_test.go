@@ -18,7 +18,7 @@ func TestCompareElement_1(t *testing.T) {
 
 	expected := -1
 
-	SymbolicMachineTest("arrays", "compareElement", args, expected, t)
+	SymbolicMachineSatTest("arrays", "compareElement", args, expected, t)
 }
 
 func TestCompareElement_2(t *testing.T) {
@@ -35,7 +35,7 @@ func TestCompareElement_2(t *testing.T) {
 
 	expected := -1
 
-	SymbolicMachineTest("arrays", "compareElement", args, expected, t)
+	SymbolicMachineSatTest("arrays", "compareElement", args, expected, t)
 }
 
 func TestCompareElement_3(t *testing.T) {
@@ -52,7 +52,7 @@ func TestCompareElement_3(t *testing.T) {
 
 	expected := 1
 
-	SymbolicMachineTest("arrays", "compareElement", args, expected, t)
+	SymbolicMachineSatTest("arrays", "compareElement", args, expected, t)
 }
 
 func TestCompareElement_4(t *testing.T) {
@@ -69,7 +69,7 @@ func TestCompareElement_4(t *testing.T) {
 
 	expected := -1
 
-	SymbolicMachineTest("arrays", "compareElement", args, expected, t)
+	SymbolicMachineSatTest("arrays", "compareElement", args, expected, t)
 }
 
 func TestCompareElement_5(t *testing.T) {
@@ -86,7 +86,7 @@ func TestCompareElement_5(t *testing.T) {
 
 	expected := 0
 
-	SymbolicMachineTest("arrays", "compareElement", args, expected, t)
+	SymbolicMachineSatTest("arrays", "compareElement", args, expected, t)
 }
 
 func TestCompareAge_1(t *testing.T) {
@@ -97,7 +97,7 @@ func TestCompareAge_1(t *testing.T) {
 
 	expected := 1
 
-	SymbolicMachineTest("arrays", "compareAge", args, expected, t)
+	SymbolicMachineSatTest("arrays", "compareAge", args, expected, t)
 }
 
 func TestCompareAge_2(t *testing.T) {
@@ -108,7 +108,7 @@ func TestCompareAge_2(t *testing.T) {
 
 	expected := -1
 
-	SymbolicMachineTest("arrays", "compareAge", args, expected, t)
+	SymbolicMachineSatTest("arrays", "compareAge", args, expected, t)
 }
 
 func TestCompareAge_3(t *testing.T) {
@@ -119,5 +119,5 @@ func TestCompareAge_3(t *testing.T) {
 
 	expected := -1
 
-	SymbolicMachineTest("arrays", "compareAge", args, expected, t)
+	SymbolicMachineSatTest("arrays", "compareAge", args, expected, t)
 }
