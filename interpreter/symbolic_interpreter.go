@@ -42,8 +42,8 @@ func Interpret(function *ssa.Function) *Context {
 
 	intArrSort := z3Context.ArraySort(typesContext.IntSort, typesContext.IntSort)
 	floatArrSort := z3Context.ArraySort(typesContext.IntSort, typesContext.FloatSort)
-	context.Memory.Mem[IntPtr] = &PrimitiveValueCell{z3Context.Const("ints", intArrSort).(z3.Array)}
-	context.Memory.Mem[FloatPtr] = &PrimitiveValueCell{z3Context.Const("floats", floatArrSort).(z3.Array)}
+	context.Memory.Mem[intPtr] = &PrimitiveValueCell{z3Context.Const("ints", intArrSort).(z3.Array)}
+	context.Memory.Mem[floatPtr] = &PrimitiveValueCell{z3Context.Const("floats", floatArrSort).(z3.Array)}
 
 	ret := getReturnConst(function, &context)
 	context.ReturnValue = &Z3Value{
@@ -82,9 +82,11 @@ func getReturnConst(function *ssa.Function, ctx *Context) z3.Value {
 	case *types.Basic:
 		switch t.Kind() {
 		case types.Int, types.Int64, types.Int16, types.Int32, types.Int8:
-			return ctx.Z3Context.FreshConst("return", ctx.TypesContext.IntSort).(z3.BV)
+			return ctx.Z3Context.FreshConst("return", ctx.TypesContext.IntSort)
 		case types.Float64, types.Float32:
 			return ctx.Z3Context.FreshConst("return", ctx.TypesContext.FloatSort)
+		case types.UntypedComplex, types.Complex64, types.Complex128:
+			return ctx.Z3Context.FreshConst("return", ctx.TypesContext.StructPointer)
 		}
 	}
 
@@ -105,12 +107,31 @@ func addInitState(function *ssa.Function, ctx *Context) {
 		sort := ctx.TypeToSort(param.Type())
 		switch casted := param.Type().(type) {
 		case *types.Basic:
-			val := Z3Value{
-				Context: ctx,
-				Value:   ctx.Z3Context.Const(name, sort),
-			}
+			switch casted.Kind() {
+			case types.Complex128, types.Complex64, types.UntypedComplex:
+				typeName := "complex"
 
-			memory[name] = &val
+				fields := map[int]types.BasicKind{
+					0: types.Float64,
+					1: types.Float64,
+				}
+
+				ctx.Memory.NewStruct(typeName, fields)
+
+				memory[name] = StructPointer{
+					ctx,
+					ctx.Memory.StructToSortPtr[typeName],
+					ctx.Memory.AllocateStruct(),
+					typeName,
+				}
+			default:
+				val := Z3Value{
+					Context: ctx,
+					Value:   ctx.Z3Context.Const(name, sort),
+				}
+
+				memory[name] = &val
+			}
 		case *types.Named:
 			typeName := casted.Obj().Name()
 			struct_ := casted.Underlying().(*types.Struct)
@@ -182,8 +203,13 @@ func visitReturn(instr *ssa.Return, state *State, ctx *Context) *State {
 	newState := state.Copy()
 	newState.Statement = instr
 
-	returnValue := visitValue(instr.Results[0], state, ctx)
-	newState.Constraints = append(newState.Constraints, ctx.ReturnValue.Eq(returnValue))
+	returnValue := visitValue(instr.Results[0], newState, ctx)
+	switch castedReturnValue := returnValue.(type) {
+	case StructPointer:
+		newState.Constraints = append(newState.Constraints, ctx.ReturnValue.Eq(castedReturnValue.Ptr.value))
+	default:
+		newState.Constraints = append(newState.Constraints, ctx.ReturnValue.Eq(returnValue))
+	}
 
 	handleDone(newState, ctx)
 
@@ -207,7 +233,14 @@ func visitValue(val ssa.Value, state *State, ctx *Context) Value {
 
 	switch casted := val.(type) {
 	case *ssa.BinOp:
-		return visitBinOp(casted, state, ctx)
+		switch t := casted.Type().(type) {
+		case *types.Basic:
+			switch t.Kind() {
+			case types.Complex128, types.Complex64, types.UntypedComplex:
+				return visitComplexBinOp(casted, state, ctx)
+			}
+		}
+		return visitSimpleBinOp(casted, state, ctx)
 	case *ssa.Parameter:
 		return visitParameter(casted, state, ctx)
 	case *ssa.Const:
@@ -222,9 +255,149 @@ func visitValue(val ssa.Value, state *State, ctx *Context) Value {
 		return visitFieldAddr(casted, state, ctx)
 	case *ssa.Alloc:
 		return visitAlloc(casted, state, ctx)
+	case *ssa.Call:
+		return visitCall(casted, state, ctx)
 	}
 
 	panic("Unsupported value " + val.String())
+}
+
+func visitComplexBinOp(expr *ssa.BinOp, state *State, ctx *Context) Value {
+	left := visitValue(expr.X, state, ctx).(StructPointer)
+	right := visitValue(expr.Y, state, ctx).(StructPointer)
+
+	var op func(
+		leftReal ArithmeticValue,
+		leftImag ArithmeticValue,
+		rightReal ArithmeticValue,
+		rightImag ArithmeticValue,
+	) (Value, Value)
+
+	switch expr.Op {
+	case token.ADD:
+		op = func(leftReal ArithmeticValue, leftImag ArithmeticValue, rightReal ArithmeticValue, rightImag ArithmeticValue) (Value, Value) {
+			return leftReal.Add(rightReal), leftImag.Add(rightImag)
+		}
+	case token.SUB:
+		op = func(leftReal ArithmeticValue, leftImag ArithmeticValue, rightReal ArithmeticValue, rightImag ArithmeticValue) (Value, Value) {
+			return leftReal.Sub(rightReal), leftImag.Sub(rightImag)
+		}
+	case token.MUL:
+		op = func(leftReal ArithmeticValue, leftImag ArithmeticValue, rightReal ArithmeticValue, rightImag ArithmeticValue) (Value, Value) {
+			realComponent := leftReal.Mul(rightReal).Sub(leftImag.Mul(rightImag))
+			imagComponent := leftReal.Mul(rightImag).Add(leftImag.Mul(rightReal))
+
+			return realComponent, imagComponent
+		}
+	case token.QUO:
+		op = func(leftReal ArithmeticValue, leftImag ArithmeticValue, rightReal ArithmeticValue, rightImag ArithmeticValue) (Value, Value) {
+			ratio1 := rightImag.Div(rightReal)
+			denom1 := rightReal.Add(ratio1.Mul(rightImag))
+			e1 := leftReal.Add(leftImag.Mul(ratio1)).Div(denom1).AsZ3Value().Value
+			f1 := leftImag.Sub(leftReal.Mul(ratio1)).Div(denom1).AsZ3Value().Value
+
+			ratio2 := rightReal.Div(rightImag)
+			denom2 := rightImag.Add(ratio2.Mul(rightReal))
+			e2 := leftReal.Mul(ratio2).Add(leftImag).Div(denom2).AsZ3Value().Value
+			f2 := leftImag.Mul(ratio2).Sub(leftReal).Div(denom2).AsZ3Value().Value
+
+			realComponentSymb := leftReal.AsZ3Value().Value.(z3.Float).GE(rightImag.AsZ3Value().Value.(z3.Float)).IfThenElse(e1, e2).(z3.Float)
+			imagComponentSymb := leftReal.AsZ3Value().Value.(z3.Float).GE(rightImag.AsZ3Value().Value.(z3.Float)).IfThenElse(f1, f2).(z3.Float)
+
+			realComponent := &Z3Value{
+				Context: ctx,
+				Value:   realComponentSymb,
+			}
+
+			imagComponent := &Z3Value{
+				Context: ctx,
+				Value:   imagComponentSymb,
+			}
+
+			return realComponent, imagComponent
+		}
+	case token.GTR:
+	case token.GEQ:
+	case token.LSS:
+	case token.LEQ:
+	case token.REM:
+	case token.EQL:
+	case token.NEQ:
+	default:
+		panic("unreachable" + expr.String())
+	}
+
+	result := complexBinOp(
+		left,
+		right,
+		op,
+		state,
+		ctx,
+	)
+
+	rememberValue(expr.Name(), result, state)
+
+	return result
+}
+
+func complexBinOp(
+	left StructPointer,
+	right StructPointer,
+	op func(leftReal ArithmeticValue, leftImag ArithmeticValue, rightReal ArithmeticValue, rightImag ArithmeticValue) (Value, Value),
+	state *State,
+	ctx *Context,
+) StructPointer {
+	if left.structName != right.structName {
+		panic("unsupported operation")
+	}
+
+	complexSortName := left.structName
+	complexSortPtr := ctx.Memory.StructToSortPtr[complexSortName]
+	complexSortCell := ctx.Memory.Mem[complexSortPtr].(StructValueCell)
+
+	leftReal, leftImag := getRealAndImagValues(left.Ptr, complexSortCell, ctx)
+	rightReal, rightImag := getRealAndImagValues(right.Ptr, complexSortCell, ctx)
+
+	resultRealVal, resultImagVal := op(leftReal, leftImag, rightReal, rightImag)
+	resultPtr := ctx.Memory.getNextPtr()
+	resultReal, resultImag := getRealAndImagValues(resultPtr, complexSortCell, ctx)
+	state.Constraints = append(state.Constraints, resultRealVal.Eq(resultReal))
+	state.Constraints = append(state.Constraints, resultImagVal.Eq(resultImag))
+
+	return StructPointer{
+		context:    ctx,
+		SortPtr:    complexSortPtr,
+		Ptr:        resultPtr,
+		structName: complexSortName,
+	}
+}
+
+func getRealAndImagValues(ptr ValuePointer, complexSortCell StructValueCell, ctx *Context) (ArithmeticValue, ArithmeticValue) {
+	realSortPtr := complexSortCell.Fields[0]
+	realSortCell := ctx.Memory.Mem[realSortPtr].(*PrimitiveValueCell)
+	realValue := realSortCell.getValue(ptr, ctx)
+
+	imagSortPtr := complexSortCell.Fields[1]
+	imagSortCell := ctx.Memory.Mem[imagSortPtr].(*PrimitiveValueCell)
+	imagValue := imagSortCell.getValue(ptr, ctx)
+
+	return realValue.(ArithmeticValue), imagValue.(ArithmeticValue)
+}
+
+func visitCall(call *ssa.Call, state *State, ctx *Context) Value {
+	switch castedCallValue := call.Call.Value.(type) {
+	case *ssa.Builtin:
+		switch castedCallValue.Name() {
+		case "real":
+			arg := visitValue(call.Call.Args[0], state, ctx).(StructPointer)
+			return ctx.Memory.GetStructField(arg, 0)
+		case "imag":
+			arg := visitValue(call.Call.Args[0], state, ctx).(StructPointer)
+			return ctx.Memory.GetStructField(arg, 1)
+		}
+	}
+
+	panic("unsupported call")
 }
 
 func visitAlloc(casted *ssa.Alloc, state *State, ctx *Context) Value {
@@ -319,7 +492,7 @@ func visitConst(value *ssa.Const, ctx *Context) Value {
 	panic("Unsupported type" + value.String())
 }
 
-func visitBinOp(expr *ssa.BinOp, state *State, ctx *Context) Value {
+func visitSimpleBinOp(expr *ssa.BinOp, state *State, ctx *Context) Value {
 	left := visitValue(expr.X, state, ctx)
 	right := visitValue(expr.Y, state, ctx)
 

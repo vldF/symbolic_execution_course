@@ -119,22 +119,42 @@ func addArgs(args map[string]any, state *interpreter.State, solver *z3.Solver, c
 	for argName, argValue := range args {
 		switch argCasted := argValue.(type) {
 		case StructArg:
-			//argSortPtr := ctx.Memory.StructToSortPtr[argCasted.name]
-			argPtr := state.Stack[argName]
-			for _, fieldValue := range argCasted.fields {
+			argSortPtr := ctx.Memory.StructToSortPtr[argCasted.name]
+			argCell := ctx.Memory.Mem[argSortPtr].(interpreter.StructValueCell)
+			argPtr := state.Stack[argName].(interpreter.StructPointer)
+			for i, fieldValue := range argCasted.fields {
+				fieldSortPtr := argCell.Fields[i]
+				cell := ctx.Memory.Mem[fieldSortPtr].(*interpreter.PrimitiveValueCell)
 				switch castedFieldValue := fieldValue.(type) {
 				case int64, int, int32, int16, int8:
-					cell := ctx.Memory.Mem[interpreter.IntPtr].(*interpreter.PrimitiveValueCell)
-					constraint := cell.Z3Arr.Select(argPtr.(interpreter.StructPointer).Ptr.AsZ3Value().Value).(z3.BV).Eq(ctx.GoToZ3Value(castedFieldValue).Value.(z3.BV))
+					value := cell.Z3Arr.Select(argPtr.Ptr.AsZ3Value().Value).(z3.BV)
+					constraint := value.Eq(ctx.GoToZ3Value(castedFieldValue).Value.(z3.BV))
 					solver.Assert(constraint)
 				case float32, float64:
-					cell := ctx.Memory.Mem[interpreter.FloatPtr].(*interpreter.PrimitiveValueCell)
-					float := cell.Z3Arr.Select(argPtr.(interpreter.StructPointer).Ptr.AsZ3Value().Value).(z3.Float)
-					constraint := float.Eq(ctx.GoToZ3Value(castedFieldValue).Value.(z3.Float))
+					value := cell.Z3Arr.Select(argPtr.Ptr.AsZ3Value().Value).(z3.Float)
+					constraint := value.Eq(ctx.GoToZ3Value(castedFieldValue).Value.(z3.Float))
 					solver.Assert(constraint)
 				}
 			}
 
+			continue
+		case complex128:
+			typeName := "complex"
+			complexSortPtr := ctx.Memory.StructToSortPtr[typeName]
+			argCell := ctx.Memory.Mem[complexSortPtr].(interpreter.StructValueCell)
+			argPtr := state.Stack[argName].(interpreter.StructPointer)
+
+			realCell := ctx.Memory.Mem[argCell.Fields[0]].(*interpreter.PrimitiveValueCell)
+			realValue := real(argCasted)
+			realSymbolicConst := realCell.Z3Arr.Select(argPtr.Ptr.AsZ3Value().Value).(z3.Float)
+			constraint := realSymbolicConst.Eq(ctx.GoToZ3Value(realValue).Value.(z3.Float))
+			solver.Assert(constraint)
+
+			imagCell := ctx.Memory.Mem[argCell.Fields[1]].(*interpreter.PrimitiveValueCell)
+			imagValue := imag(argCasted)
+			imagSymbolicConst := imagCell.Z3Arr.Select(argPtr.Ptr.AsZ3Value().Value).(z3.Float)
+			constraint = imagSymbolicConst.Eq(ctx.GoToZ3Value(imagValue).Value.(z3.Float))
+			solver.Assert(constraint)
 			continue
 		}
 
@@ -158,8 +178,28 @@ func addArgs(args map[string]any, state *interpreter.State, solver *z3.Solver, c
 }
 
 func addResultConstraint(solver *z3.Solver, expectedResult any, ctx *interpreter.Context) {
-	value := ctx.GoToZ3Value(expectedResult)
-	solver.Assert(ctx.ReturnValue.Eq(&value).AsZ3Value().Value.(z3.Bool))
+	switch castedExpectedResult := expectedResult.(type) {
+	case complex128:
+		resultPtr := ctx.ReturnValue
+		typeName := "complex"
+		complexSortPtr := ctx.Memory.StructToSortPtr[typeName]
+		argCell := ctx.Memory.Mem[complexSortPtr].(interpreter.StructValueCell)
+		realSortPtr := argCell.Fields[0]
+		imagSortPtr := argCell.Fields[1]
+
+		realFields := ctx.Memory.Mem[realSortPtr].(*interpreter.PrimitiveValueCell)
+		expectedRealComponent := real(castedExpectedResult)
+		constraint := realFields.Z3Arr.Select(resultPtr.Value).(z3.Float).Eq(ctx.GoToZ3Value(expectedRealComponent).Value.(z3.Float))
+		solver.Assert(constraint)
+
+		imagFields := ctx.Memory.Mem[imagSortPtr].(*interpreter.PrimitiveValueCell)
+		expectedImagComponent := imag(castedExpectedResult)
+		constraint = imagFields.Z3Arr.Select(resultPtr.Value).(z3.Float).Eq(ctx.GoToZ3Value(expectedImagComponent).Value.(z3.Float))
+		solver.Assert(constraint)
+	default:
+		value := ctx.GoToZ3Value(expectedResult)
+		solver.Assert(ctx.ReturnValue.Eq(&value).AsZ3Value().Value.(z3.Bool))
+	}
 }
 
 type StructArg struct {

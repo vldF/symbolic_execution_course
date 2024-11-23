@@ -14,8 +14,19 @@ func (ctx *Context) TypeToSort(t types.Type) z3.Sort {
 			return ctx.TypesContext.IntSort
 		case types.UntypedFloat, types.Float32, types.Float64:
 			return ctx.TypesContext.FloatSort
-			//case types.UntypedComplex, types.Complex64, types.Complex128:
-			//	return ctx.TypesContext.ComplexSort
+		case types.UntypedComplex, types.Complex64, types.Complex128:
+			name := "complex"
+			if _, ok := ctx.Memory.StructToSortPtr[name]; ok {
+				return ctx.TypesContext.StructPointer
+			}
+
+			fields := map[int]types.BasicKind{
+				0: types.Float64,
+				1: types.Float64,
+			}
+
+			ctx.Memory.NewStruct(name, fields)
+			return ctx.TypesContext.StructPointer
 		}
 		//case *types.Array:
 		//	elemType := t.(*types.Array).Elem()
@@ -71,10 +82,6 @@ func (ctx *Context) GoToZ3Value(v any) Z3Value {
 			Context: ctx,
 			Value:   b,
 		}
-	//case complex128:
-	//	return ctx.NewComplex(casted)
-	//case complex64:
-	//	return ctx.NewComplex(complex128(casted))
 	//case []int:
 	//	arrId := ctx.NewArray(ctx.Sorts.IntSort, len(casted))
 	//	arr := ctx.GetArrayValue(arrId)
