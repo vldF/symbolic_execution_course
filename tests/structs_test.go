@@ -17,7 +17,7 @@ func TestStruct_1(t *testing.T) {
 	sTypes[1] = types.Float64
 
 	args["s"] = StructArg{
-		name:        "Struct1",
+		typeName:    "Struct1",
 		fields:      sArgs,
 		fieldsTypes: sTypes,
 	}

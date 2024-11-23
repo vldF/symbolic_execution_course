@@ -19,6 +19,6 @@ type TypesContext struct {
 	IntSort   z3.Sort
 	FloatSort z3.Sort
 
-	StructPointer z3.Sort
-	UnknownSort   z3.Sort
+	Pointer     z3.Sort
+	UnknownSort z3.Sort
 }

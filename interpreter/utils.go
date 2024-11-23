@@ -16,8 +16,8 @@ func (ctx *Context) TypeToSort(t types.Type) z3.Sort {
 			return ctx.TypesContext.FloatSort
 		case types.UntypedComplex, types.Complex64, types.Complex128:
 			name := "complex"
-			if _, ok := ctx.Memory.StructToSortPtr[name]; ok {
-				return ctx.TypesContext.StructPointer
+			if _, ok := ctx.Memory.TypeToSortPtr[name]; ok {
+				return ctx.TypesContext.Pointer
 			}
 
 			fields := map[int]types.BasicKind{
@@ -26,7 +26,7 @@ func (ctx *Context) TypeToSort(t types.Type) z3.Sort {
 			}
 
 			ctx.Memory.NewStruct(name, fields)
-			return ctx.TypesContext.StructPointer
+			return ctx.TypesContext.Pointer
 		}
 		//case *types.Array:
 		//	elemType := t.(*types.Array).Elem()
@@ -36,8 +36,8 @@ func (ctx *Context) TypeToSort(t types.Type) z3.Sort {
 		//	return ctx.Z3Context.ArraySort(ctx.TypeToSort(elemType), ctx.TypesContext.IntSort)
 	case *types.Named:
 		name := casted.Obj().Name()
-		if _, ok := ctx.Memory.StructToSortPtr[name]; ok {
-			return ctx.TypesContext.StructPointer
+		if _, ok := ctx.Memory.TypeToSortPtr[name]; ok {
+			return ctx.TypesContext.Pointer
 		}
 
 		structType := casted.Underlying().(*types.Struct)
@@ -50,7 +50,7 @@ func (ctx *Context) TypeToSort(t types.Type) z3.Sort {
 		}
 
 		ctx.Memory.NewStruct(name, fields)
-		return ctx.TypesContext.StructPointer
+		return ctx.TypesContext.Pointer
 	}
 
 	return ctx.TypesContext.UnknownSort

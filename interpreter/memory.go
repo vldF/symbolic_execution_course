@@ -23,9 +23,9 @@ var basePtrCounter int64 = 0
 var baseSortPtrCounter int64 = 100000000
 
 type Memory struct {
-	context         *Context
-	Mem             map[sortPointer]interface{}
-	StructToSortPtr map[string]sortPointer
+	context       *Context
+	Mem           map[sortPointer]interface{}
+	TypeToSortPtr map[string]sortPointer
 }
 
 func (memory *Memory) AllocateInt() ValuePointer {
@@ -40,6 +40,61 @@ func (memory *Memory) AllocateStruct() ValuePointer {
 	return memory.getNextPtr()
 }
 
+func (memory *Memory) NewArray(elementName string, elements types.BasicKind) {
+	z3Context := memory.context.Z3Context
+
+	basePtrCounter++
+	newSortPtr := sortPointer{
+		ConcreteIntValue{
+			memory.context,
+			basePtrCounter,
+		},
+	}
+	memory.TypeToSortPtr[elementName+"-array-wrapper"] = newSortPtr
+
+	basePtrCounter++
+	lenSortPtr := sortPointer{
+		ConcreteIntValue{
+			memory.context,
+			basePtrCounter,
+		},
+	}
+	intArrSort := z3Context.ArraySort(memory.context.TypesContext.IntSort, memory.context.TypesContext.IntSort)
+	memory.Mem[lenSortPtr] = &PrimitiveValueCell{
+		z3Context.FreshConst(elementName+"-array-wrapper-len", intArrSort).(z3.Array),
+	}
+
+	basePtrCounter++
+	elementSortPtr := sortPointer{
+		ConcreteIntValue{
+			memory.context,
+			basePtrCounter,
+		},
+	}
+
+	switch elements {
+	case types.Int, types.Int8, types.Int16, types.Int32, types.Int64:
+		intArrSort := z3Context.ArraySort(memory.context.TypesContext.IntSort, memory.context.TypesContext.IntSort)
+		arrayOfIntArrSort := z3Context.ArraySort(memory.context.TypesContext.IntSort, intArrSort)
+		memory.Mem[elementSortPtr] = &PrimitiveValueCell{
+			z3Context.FreshConst(elementName+"-ints", arrayOfIntArrSort).(z3.Array),
+		}
+	case types.Float32, types.Float64, types.UntypedFloat:
+		intArrSort := z3Context.ArraySort(memory.context.TypesContext.IntSort, memory.context.TypesContext.IntSort)
+		arrayOfIntArrSort := z3Context.ArraySort(memory.context.TypesContext.IntSort, intArrSort)
+		memory.Mem[elementSortPtr] = &PrimitiveValueCell{
+			z3Context.FreshConst(elementName+"-ints", arrayOfIntArrSort).(z3.Array),
+		}
+	}
+
+	memory.Mem[newSortPtr] = ArrayWrapperCell{
+		memory:   memory,
+		Lens:     lenSortPtr,
+		Elements: elementSortPtr,
+	}
+
+}
+
 func (memory *Memory) NewStruct(name string, fields map[int]types.BasicKind) {
 	basePtrCounter++
 	newSortPtr := sortPointer{
@@ -48,19 +103,11 @@ func (memory *Memory) NewStruct(name string, fields map[int]types.BasicKind) {
 			basePtrCounter,
 		},
 	}
-	memory.StructToSortPtr[name] = newSortPtr
+	memory.TypeToSortPtr[name] = newSortPtr
 
 	fieldsInCell := make(map[int]sortPointer)
 
 	for fieldName, fieldType := range fields {
-		//switch fieldType {
-		//case types.Int8, types.Int16, types.Int32, types.Int64, types.Int, types.Uint8, types.Uint16, types.Uint32, types.Uint64:
-		//	fieldsInCell[fieldName] = intPtr
-		//case types.Float32, types.Float64:
-		//	fieldsInCell[fieldName] = floatPtr
-		//default:
-		//	panic("unsupported type")
-		//}
 		baseSortPtrCounter++
 		fieldsPtr := sortPointer{
 			ConcreteIntValue{
@@ -74,10 +121,10 @@ func (memory *Memory) NewStruct(name string, fields map[int]types.BasicKind) {
 		switch fieldType {
 		case types.Int8, types.Int16, types.Int32, types.Int64, types.Int, types.Uint8, types.Uint16, types.Uint32, types.Uint64:
 			intArrSort := z3Context.ArraySort(typesContext.IntSort, typesContext.IntSort)
-			memory.Mem[fieldsPtr] = &PrimitiveValueCell{z3Context.FreshConst("ints", intArrSort).(z3.Array)}
+			memory.Mem[fieldsPtr] = &PrimitiveValueCell{z3Context.FreshConst(name+"-ints", intArrSort).(z3.Array)}
 		case types.Float32, types.Float64:
 			floatArrSort := z3Context.ArraySort(typesContext.IntSort, typesContext.FloatSort)
-			memory.Mem[fieldsPtr] = &PrimitiveValueCell{z3Context.FreshConst("floats", floatArrSort).(z3.Array)}
+			memory.Mem[fieldsPtr] = &PrimitiveValueCell{z3Context.FreshConst(name+"-floats", floatArrSort).(z3.Array)}
 		default:
 			panic("unsupported type")
 		}
@@ -252,6 +299,26 @@ type StructValueCell struct {
 	Fields map[int]sortPointer
 }
 
-func (cell *StructValueCell) getFieldPtr(field int) sortPointer {
-	return cell.Fields[field]
+type ArrayWrapperCell struct {
+	memory   *Memory
+	Lens     sortPointer
+	Elements sortPointer
+}
+
+func (cell *ArrayWrapperCell) GetValue(index ValuePointer, context *Context) Value {
+	z3Val := cell.memory.Mem[cell.Elements].(*PrimitiveValueCell).Z3Arr.Select(index.value.AsZ3Value().Value.(z3.BV))
+
+	return &Z3Value{
+		Context: context,
+		Value:   z3Val,
+	}
+}
+
+func (cell *ArrayWrapperCell) GetLen(index ValuePointer, context *Context) Value {
+	z3Val := cell.memory.Mem[cell.Lens].(*PrimitiveValueCell).Z3Arr.Select(index.value.AsZ3Value().Value.(z3.BV))
+
+	return &Z3Value{
+		Context: context,
+		Value:   z3Val,
+	}
 }

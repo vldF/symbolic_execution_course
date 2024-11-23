@@ -119,7 +119,7 @@ func addArgs(args map[string]any, state *interpreter.State, solver *z3.Solver, c
 	for argName, argValue := range args {
 		switch argCasted := argValue.(type) {
 		case StructArg:
-			argSortPtr := ctx.Memory.StructToSortPtr[argCasted.name]
+			argSortPtr := ctx.Memory.TypeToSortPtr[argCasted.typeName]
 			argCell := ctx.Memory.Mem[argSortPtr].(interpreter.StructValueCell)
 			argPtr := state.Stack[argName].(interpreter.StructPointer)
 			for i, fieldValue := range argCasted.fields {
@@ -140,7 +140,7 @@ func addArgs(args map[string]any, state *interpreter.State, solver *z3.Solver, c
 			continue
 		case complex128:
 			typeName := "complex"
-			complexSortPtr := ctx.Memory.StructToSortPtr[typeName]
+			complexSortPtr := ctx.Memory.TypeToSortPtr[typeName]
 			argCell := ctx.Memory.Mem[complexSortPtr].(interpreter.StructValueCell)
 			argPtr := state.Stack[argName].(interpreter.StructPointer)
 
@@ -155,6 +155,33 @@ func addArgs(args map[string]any, state *interpreter.State, solver *z3.Solver, c
 			imagSymbolicConst := imagCell.Z3Arr.Select(argPtr.Ptr.AsZ3Value().Value).(z3.Float)
 			constraint = imagSymbolicConst.Eq(ctx.GoToZ3Value(imagValue).Value.(z3.Float))
 			solver.Assert(constraint)
+			continue
+		case ArrayArg:
+			typeName := argCasted.elementTypeName
+			sortPtr := ctx.Memory.TypeToSortPtr[typeName+"-array-wrapper"]
+			wrapperSortPtr := ctx.Memory.Mem[sortPtr].(interpreter.ArrayWrapperCell)
+
+			wrapperPtr := state.Stack[argName].(interpreter.StructPointer)
+
+			lenConst := wrapperSortPtr.GetLen(wrapperPtr.Ptr, ctx).AsZ3Value().Value.(z3.BV)
+			expectedLen := ctx.Z3Context.FromInt(int64(len(argCasted.elements)), ctx.TypesContext.IntSort).(z3.BV)
+			constraint := lenConst.Eq(expectedLen)
+			solver.Assert(constraint)
+
+			for i, element := range argCasted.elements {
+				value := ctx.GoToZ3Value(element)
+				val := value.AsZ3Value()
+
+				idx := ctx.Z3Context.FromInt(int64(i), ctx.TypesContext.IntSort).(z3.BV)
+
+				arrayValue := interpreter.Z3Value{
+					Context: ctx,
+					Value:   wrapperSortPtr.GetValue(wrapperPtr.Ptr, ctx).AsZ3Value().Value.(z3.Array).Select(idx),
+				}
+
+				solver.Assert(arrayValue.Eq(&val).AsZ3Value().Value.(z3.Bool))
+			}
+
 			continue
 		}
 
@@ -182,7 +209,7 @@ func addResultConstraint(solver *z3.Solver, expectedResult any, ctx *interpreter
 	case complex128:
 		resultPtr := ctx.ReturnValue
 		typeName := "complex"
-		complexSortPtr := ctx.Memory.StructToSortPtr[typeName]
+		complexSortPtr := ctx.Memory.TypeToSortPtr[typeName]
 		argCell := ctx.Memory.Mem[complexSortPtr].(interpreter.StructValueCell)
 		realSortPtr := argCell.Fields[0]
 		imagSortPtr := argCell.Fields[1]
@@ -203,7 +230,13 @@ func addResultConstraint(solver *z3.Solver, expectedResult any, ctx *interpreter
 }
 
 type StructArg struct {
-	name        string
+	typeName    string
 	fields      map[int]any
 	fieldsTypes map[int]types.BasicKind
+}
+
+type ArrayArg struct {
+	elements        []any
+	elementTypeName string
+	elementType     types.Type
 }

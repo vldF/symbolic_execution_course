@@ -16,11 +16,11 @@ func Interpret(function *ssa.Function) *Context {
 	z3Context := z3.NewContext(z3Config)
 
 	typesContext := TypesContext{
-		IntBits:       bits.UintSize,
-		IntSort:       z3Context.BVSort(bits.UintSize),
-		FloatSort:     z3Context.FloatSort(11, 53),
-		StructPointer: z3Context.BVSort(bits.UintSize),
-		UnknownSort:   z3Context.UninterpretedSort("unknown"),
+		IntBits:     bits.UintSize,
+		IntSort:     z3Context.BVSort(bits.UintSize),
+		FloatSort:   z3Context.FloatSort(11, 53),
+		Pointer:     z3Context.BVSort(bits.UintSize),
+		UnknownSort: z3Context.UninterpretedSort("unknown"),
 	}
 
 	states := heap.HeapInit[*State](func(state *State, state2 *State) bool {
@@ -35,9 +35,9 @@ func Interpret(function *ssa.Function) *Context {
 		Memory:       nil,
 	}
 	context.Memory = &Memory{
-		context:         &context,
-		Mem:             make(map[sortPointer]interface{}),
-		StructToSortPtr: make(map[string]sortPointer),
+		context:       &context,
+		Mem:           make(map[sortPointer]interface{}),
+		TypeToSortPtr: make(map[string]sortPointer),
 	}
 
 	intArrSort := z3Context.ArraySort(typesContext.IntSort, typesContext.IntSort)
@@ -86,7 +86,7 @@ func getReturnConst(function *ssa.Function, ctx *Context) z3.Value {
 		case types.Float64, types.Float32:
 			return ctx.Z3Context.FreshConst("return", ctx.TypesContext.FloatSort)
 		case types.UntypedComplex, types.Complex64, types.Complex128:
-			return ctx.Z3Context.FreshConst("return", ctx.TypesContext.StructPointer)
+			return ctx.Z3Context.FreshConst("return", ctx.TypesContext.Pointer)
 		}
 	}
 
@@ -120,7 +120,7 @@ func addInitState(function *ssa.Function, ctx *Context) {
 
 				memory[name] = StructPointer{
 					ctx,
-					ctx.Memory.StructToSortPtr[typeName],
+					ctx.Memory.TypeToSortPtr[typeName],
 					ctx.Memory.AllocateStruct(),
 					typeName,
 				}
@@ -146,9 +146,29 @@ func addInitState(function *ssa.Function, ctx *Context) {
 
 			memory[name] = StructPointer{
 				ctx,
-				ctx.Memory.StructToSortPtr[typeName],
+				ctx.Memory.TypeToSortPtr[typeName],
 				ctx.Memory.AllocateStruct(),
 				typeName,
+			}
+		case *types.Array:
+			typeName := casted.Elem().(*types.Named).Obj().Name()
+			ctx.Memory.NewArray(typeName, casted.Elem().(*types.Basic).Kind())
+
+			memory[name] = StructPointer{
+				ctx,
+				ctx.Memory.TypeToSortPtr[typeName+"-array-wrapper"],
+				ctx.Memory.AllocateStruct(),
+				typeName + "-array-wrapper",
+			}
+		case *types.Slice:
+			typeName := casted.Elem().String()
+			ctx.Memory.NewArray(typeName, casted.Elem().(*types.Basic).Kind())
+
+			memory[name] = StructPointer{
+				ctx,
+				ctx.Memory.TypeToSortPtr[typeName+"-array-wrapper"],
+				ctx.Memory.AllocateStruct(),
+				typeName + "-array-wrapper",
 			}
 		}
 	}
@@ -257,9 +277,24 @@ func visitValue(val ssa.Value, state *State, ctx *Context) Value {
 		return visitAlloc(casted, state, ctx)
 	case *ssa.Call:
 		return visitCall(casted, state, ctx)
+	case *ssa.IndexAddr:
+		return visitIndexAddr(casted, state, ctx)
 	}
 
 	panic("Unsupported value " + val.String())
+}
+
+func visitIndexAddr(casted *ssa.IndexAddr, state *State, ctx *Context) Value {
+	structPtr := visitValue(casted.X, state, ctx).(StructPointer)
+	idxValue := visitValue(casted.Index, state, ctx)
+
+	cell := ctx.Memory.Mem[structPtr.SortPtr].(ArrayWrapperCell)
+	val := cell.GetValue(structPtr.Ptr, ctx).AsZ3Value().Value.(z3.Array).Select(idxValue.AsZ3Value().Value.(z3.BV))
+
+	return &Z3Value{
+		Context: ctx,
+		Value:   val,
+	}
 }
 
 func visitComplexBinOp(expr *ssa.BinOp, state *State, ctx *Context) Value {
@@ -352,7 +387,7 @@ func complexBinOp(
 	}
 
 	complexSortName := left.structName
-	complexSortPtr := ctx.Memory.StructToSortPtr[complexSortName]
+	complexSortPtr := ctx.Memory.TypeToSortPtr[complexSortName]
 	complexSortCell := ctx.Memory.Mem[complexSortPtr].(StructValueCell)
 
 	leftReal, leftImag := getRealAndImagValues(left.Ptr, complexSortCell, ctx)
@@ -394,6 +429,10 @@ func visitCall(call *ssa.Call, state *State, ctx *Context) Value {
 		case "imag":
 			arg := visitValue(call.Call.Args[0], state, ctx).(StructPointer)
 			return ctx.Memory.GetStructField(arg, 1)
+		case "len":
+			arg := visitValue(call.Call.Args[0], state, ctx).(StructPointer)
+			cell := ctx.Memory.Mem[arg.SortPtr].(ArrayWrapperCell)
+			return cell.GetLen(arg.Ptr, ctx)
 		}
 	}
 
@@ -408,7 +447,7 @@ func visitAlloc(casted *ssa.Alloc, state *State, ctx *Context) Value {
 
 	res := &StructPointer{
 		context:    ctx,
-		SortPtr:    ctx.Memory.StructToSortPtr[structName],
+		SortPtr:    ctx.Memory.TypeToSortPtr[structName],
 		Ptr:        ctx.Memory.AllocateStruct(),
 		structName: structName,
 	}
@@ -418,7 +457,6 @@ func visitAlloc(casted *ssa.Alloc, state *State, ctx *Context) Value {
 }
 
 func visitFieldAddr(casted *ssa.FieldAddr, state *State, ctx *Context) Value {
-	casted.X.Type().(*types.Pointer).Elem().(*types.Named).Obj().Name()
 	structPtr := visitValue(casted.X, state, ctx)
 	fieldIdx := casted.Field
 	field := ctx.Memory.GetStructField(structPtr.(StructPointer), fieldIdx)
