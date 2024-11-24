@@ -11,7 +11,7 @@ import (
 	"symbolic_execution_course/heap"
 )
 
-func Interpret(function *ssa.Function) *Context {
+func Interpret(function *ssa.Function, interConfig InterpreterConfig) *Context {
 	z3Config := z3.NewContextConfig()
 	z3Context := z3.NewContext(z3Config)
 
@@ -24,10 +24,11 @@ func Interpret(function *ssa.Function) *Context {
 	}
 
 	states := heap.HeapInit[*State](func(state *State, state2 *State) bool {
-		return true // todo
+		return state.Priority > state2.Priority
 	})
 
 	context := Context{
+		Config:       interConfig,
 		Z3Context:    z3Context,
 		TypesContext: &typesContext,
 		States:       states,
@@ -73,6 +74,7 @@ func processState(state *State, ctx *Context) {
 			continue
 		}
 
+		nextState.Priority = nextState.GetPriority(ctx.Config.PathSelectorMode)
 		ctx.States.Insert(nextState)
 	}
 }
@@ -164,6 +166,7 @@ func addInitState(function *ssa.Function, ctx *Context) {
 	}
 
 	initState := State{
+		Priority:           0,
 		Constraints:        constraints,
 		Stack:              memory,
 		Statement:          entry.Instrs[0],
@@ -188,10 +191,7 @@ func visitInstruction(instr ssa.Instruction, prevState *State, ctx *Context) []*
 
 func visitStore(casted *ssa.Store, state *State, ctx *Context) []*State {
 	newState := getNextStates(state)[0]
-	//addrValue := visitValue(casted.Addr, state, ctx)
 	storeValue := visitValue(casted.Val, state, ctx)
-
-	//newState.Constraints = append(newState.Constraints, addrValue.Eq(storeValue))
 
 	newState.Stack[casted.Addr.Name()] = storeValue
 

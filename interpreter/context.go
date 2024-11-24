@@ -6,6 +6,7 @@ import (
 )
 
 type Context struct {
+	Config       InterpreterConfig
 	Z3Context    *z3.Context
 	TypesContext *TypesContext
 	ReturnValue  *Z3Value

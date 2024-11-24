@@ -5,6 +5,7 @@ import (
 )
 
 type State struct {
+	Priority           int
 	Constraints        []BoolValue
 	Stack              map[string]Value
 	Statement          ssa.Instruction

@@ -82,9 +82,10 @@ func runAnalysisFor(fileName string, functionName string) *interpreter.Context {
 
 	ssa := ssa.GetSsa(string(code))
 	fun := ssa.Func(functionName)
+	config := interpreter.InterpreterConfig{PathSelectorMode: interpreter.NURS}
 
 	println("function", functionName)
-	return interpreter.Interpret(fun)
+	return interpreter.Interpret(fun, config)
 }
 
 func addAsserts(states []*interpreter.State, solver *z3.Solver) {
