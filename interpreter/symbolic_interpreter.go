@@ -150,19 +150,9 @@ func addInitState(function *ssa.Function, ctx *Context) {
 				ctx.Memory.AllocateStruct(),
 				typeName,
 			}
-		case *types.Array:
-			typeName := casted.Elem().(*types.Named).Obj().Name()
-			ctx.Memory.NewArray(typeName, casted.Elem().(*types.Basic).Kind())
-
-			memory[name] = StructPointer{
-				ctx,
-				ctx.Memory.TypeToSortPtr[typeName+"-array-wrapper"],
-				ctx.Memory.AllocateStruct(),
-				typeName + "-array-wrapper",
-			}
 		case *types.Slice:
 			typeName := casted.Elem().String()
-			ctx.Memory.NewArray(typeName, casted.Elem().(*types.Basic).Kind())
+			ctx.Memory.NewArray(typeName, casted.Elem())
 
 			memory[name] = StructPointer{
 				ctx,
@@ -477,7 +467,24 @@ func visitUnary(casted *ssa.UnOp, state *State, ctx *Context) Value {
 }
 
 func visitDereference(casted *ssa.UnOp, state *State, ctx *Context) Value {
-	return visitValue(casted.X, state, ctx)
+	switch casted.Type().(type) {
+	case *types.Pointer:
+		typeName := casted.Type().(*types.Pointer).Elem().(*types.Named).Obj().Name()
+		structSortPtr := ctx.Memory.TypeToSortPtr[typeName]
+		ptr := visitValue(casted.X, state, ctx)
+
+		return StructPointer{
+			context: ctx,
+			SortPtr: structSortPtr,
+			Ptr: ValuePointer{
+				context: ctx,
+				value:   ptr,
+			},
+			structName: typeName,
+		}
+	default:
+		return visitValue(casted.X, state, ctx)
+	}
 }
 
 func visitParameter(casted *ssa.Parameter, state *State, ctx *Context) Value {
