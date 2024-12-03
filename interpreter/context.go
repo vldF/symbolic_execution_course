@@ -8,6 +8,7 @@ import (
 type Context struct {
 	Config       InterpreterConfig
 	Z3Context    *z3.Context
+	Solver       *z3.Solver
 	TypesContext *TypesContext
 	ReturnValue  *Z3Value
 	States       *heap.Heap[*State]

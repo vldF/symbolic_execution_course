@@ -11,13 +11,16 @@ import (
 	"symbolic_execution_course/heap"
 )
 
-func Interpret(function *ssa.Function, interConfig InterpreterConfig) *Context {
+func Interpret(
+	function *ssa.Function,
+	interConfig InterpreterConfig,
+) *Context {
 	z3Config := z3.NewContextConfig()
 	z3Context := z3.NewContext(z3Config)
 
 	typesContext := TypesContext{
 		IntBits:     bits.UintSize,
-		IntSort:     z3Context.BVSort(bits.UintSize),
+		IntSort:     z3Context.BVSort(bits.UintSize), // todo: add dedicated sorts for various int sizes
 		FloatSort:   z3Context.FloatSort(11, 53),
 		Pointer:     z3Context.BVSort(bits.UintSize),
 		UnknownSort: z3Context.UninterpretedSort("unknown"),
@@ -27,9 +30,12 @@ func Interpret(function *ssa.Function, interConfig InterpreterConfig) *Context {
 		return state.Priority > state2.Priority
 	})
 
+	solver := z3.NewSolver(z3Context)
+
 	context := Context{
 		Config:       interConfig,
 		Z3Context:    z3Context,
+		Solver:       solver,
 		TypesContext: &typesContext,
 		States:       states,
 		Results:      make([]*State, 0),
@@ -186,11 +192,11 @@ func visitInstruction(instr ssa.Instruction, prevState *State, ctx *Context) []*
 		return visitStore(casted, prevState, ctx)
 	}
 
-	return getNextStates(prevState)
+	return createPossibleNextStates(prevState)
 }
 
 func visitStore(casted *ssa.Store, state *State, ctx *Context) []*State {
-	newState := getNextStates(state)[0]
+	newState := createPossibleNextStates(state)[0]
 	storeValue := visitValue(casted.Val, state, ctx)
 
 	newState.Stack[casted.Addr.Name()] = storeValue
@@ -199,14 +205,25 @@ func visitStore(casted *ssa.Store, state *State, ctx *Context) []*State {
 }
 
 func visitIf(casted *ssa.If, state *State, ctx *Context) []*State {
-	nextStates := getNextStates(state)
+	possibleStates := createPossibleNextStates(state)
+	result := make([]*State, 0)
 
 	cond := visitValue(casted.Cond, state, ctx).(BoolValue)
 
-	nextStates[0].Constraints = append(nextStates[0].Constraints, cond)
-	nextStates[1].Constraints = append(nextStates[1].Constraints, cond.Not())
+	trueState := possibleStates[0]
+	trueState.Constraints = append(trueState.Constraints, cond)
 
-	return nextStates
+	if hasSolution(trueState, ctx) {
+		result = append(result, trueState)
+	}
+
+	falseState := possibleStates[1]
+	falseState.Constraints = append(falseState.Constraints, cond.Not())
+	if hasSolution(falseState, ctx) {
+		result = append(result, falseState)
+	}
+
+	return result
 }
 
 func visitReturn(instr *ssa.Return, state *State, ctx *Context) *State {
@@ -584,7 +601,7 @@ func visitSimpleBinOp(expr *ssa.BinOp, state *State, ctx *Context) Value {
 	return result
 }
 
-func getNextStates(state *State) []*State {
+func createPossibleNextStates(state *State) []*State {
 	block := state.Statement.Block()
 	idx := slices.Index(block.Instrs, state.Statement)
 

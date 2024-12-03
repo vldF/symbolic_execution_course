@@ -60,7 +60,8 @@ func SymbolicMachineSatTest(
 
 func symbolicMachineTest(fileName string, funcName string, args map[string]any, expected any) *z3.Solver {
 	context := runAnalysisFor(fileName, funcName)
-	solver := z3.NewSolver(context.Z3Context)
+	solver := context.Solver
+	solver.Reset()
 	addAsserts(context.Results, solver)
 	addArgs(args, context.Results[0], solver, context)
 	addResultConstraint(solver, expected, context)
