@@ -7,86 +7,86 @@ import (
 func TestCompareElement_1(t *testing.T) {
 	args := make(map[string]any)
 
-	arr := make([]int, 3)
-	arr[0] = 1
-	arr[1] = 2
-	arr[2] = 3
-	args["array"] = arr
+	args["array"] = ArrayArg{
+		elements:        []any{1, 2, 3},
+		elementTypeName: "int",
+	}
 
 	args["index"] = -1
 	args["value"] = 1
 
 	expected := -1
 
-	SymbolicMachineTest("arrays", "compareElement", args, expected, t)
+	SymbolicMachineSatTest("arrays", "compareElement", args, expected, t)
+	SymbolicMachineUnsatTest("arrays", "compareElement", args, expected+1, t)
 }
 
 func TestCompareElement_2(t *testing.T) {
 	args := make(map[string]any)
 
-	arr := make([]int, 3)
-	arr[0] = 1
-	arr[1] = 2
-	arr[2] = 3
-	args["array"] = arr
+	args["array"] = ArrayArg{
+		elements:        []any{1, 2, 3},
+		elementTypeName: "int",
+	}
 
-	args["index"] = len(arr) + 1
+	args["index"] = 3
 	args["value"] = 1
 
 	expected := -1
 
-	SymbolicMachineTest("arrays", "compareElement", args, expected, t)
+	SymbolicMachineSatTest("arrays", "compareElement", args, expected, t)
+	SymbolicMachineUnsatTest("arrays", "compareElement", args, expected+1, t)
 }
 
 func TestCompareElement_3(t *testing.T) {
 	args := make(map[string]any)
 
-	arr := make([]int, 3)
-	arr[0] = 1
-	arr[1] = 2
-	arr[2] = 3
-	args["array"] = arr
+	args["array"] = ArrayArg{
+		elements:        []any{1, 2, 3},
+		elementTypeName: "int",
+	}
 
 	args["index"] = 1
 	args["value"] = 0
 
 	expected := 1
 
-	SymbolicMachineTest("arrays", "compareElement", args, expected, t)
+	SymbolicMachineSatTest("arrays", "compareElement", args, expected, t)
+	SymbolicMachineUnsatTest("arrays", "compareElement", args, expected+1, t)
 }
 
 func TestCompareElement_4(t *testing.T) {
 	args := make(map[string]any)
 
-	arr := make([]int, 3)
-	arr[0] = 1
-	arr[1] = 2
-	arr[2] = 3
-	args["array"] = arr
+	args["array"] = ArrayArg{
+		elements:        []any{1, 2, 3},
+		elementTypeName: "int",
+	}
 
 	args["index"] = 0
 	args["value"] = 2
 
 	expected := -1
 
-	SymbolicMachineTest("arrays", "compareElement", args, expected, t)
+	SymbolicMachineSatTest("arrays", "compareElement", args, expected, t)
+	SymbolicMachineUnsatTest("arrays", "compareElement", args, expected+1, t)
 }
 
 func TestCompareElement_5(t *testing.T) {
 	args := make(map[string]any)
 
-	arr := make([]int, 3)
-	arr[0] = 1
-	arr[1] = 2
-	arr[2] = 3
-	args["array"] = arr
+	args["array"] = ArrayArg{
+		elements:        []any{1, 2, 3},
+		elementTypeName: "int",
+	}
 
 	args["index"] = 1
 	args["value"] = 2
 
 	expected := 0
 
-	SymbolicMachineTest("arrays", "compareElement", args, expected, t)
+	SymbolicMachineSatTest("arrays", "compareElement", args, expected, t)
+	SymbolicMachineUnsatTest("arrays", "compareElement", args, expected+1, t)
 }
 
 func TestCompareAge_1(t *testing.T) {
@@ -97,7 +97,8 @@ func TestCompareAge_1(t *testing.T) {
 
 	expected := 1
 
-	SymbolicMachineTest("arrays", "compareAge", args, expected, t)
+	SymbolicMachineSatTest("arrays", "compareAge", args, expected, t)
+	SymbolicMachineUnsatTest("arrays", "compareAge", args, expected+1, t)
 }
 
 func TestCompareAge_2(t *testing.T) {
@@ -108,7 +109,7 @@ func TestCompareAge_2(t *testing.T) {
 
 	expected := -1
 
-	SymbolicMachineTest("arrays", "compareAge", args, expected, t)
+	SymbolicMachineSatTest("arrays", "compareAge", args, expected, t)
 }
 
 func TestCompareAge_3(t *testing.T) {
@@ -119,5 +120,5 @@ func TestCompareAge_3(t *testing.T) {
 
 	expected := -1
 
-	SymbolicMachineTest("arrays", "compareAge", args, expected, t)
+	SymbolicMachineSatTest("arrays", "compareAge", args, expected, t)
 }
