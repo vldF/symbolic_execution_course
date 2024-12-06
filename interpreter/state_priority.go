@@ -42,13 +42,18 @@ func (state *State) getNursPriority() int {
 
 func (state *State) getDepth() int {
 	currentBlock := state.Statement.Block()
-	return getDepth(currentBlock)
+	return getDepth(currentBlock, make(map[*ssa.BasicBlock]bool))
 }
 
-func getDepth(bb *ssa.BasicBlock) int {
+func getDepth(bb *ssa.BasicBlock, visited map[*ssa.BasicBlock]bool) int {
+	if ok, _ := visited[bb]; ok {
+		return 0
+	}
+	visited[bb] = true
+
 	maxPrevDepth := 0
 	for _, pred := range bb.Preds {
-		newDepth := getDepth(pred)
+		newDepth := getDepth(pred, visited)
 		if newDepth > maxPrevDepth {
 			maxPrevDepth = newDepth
 		}

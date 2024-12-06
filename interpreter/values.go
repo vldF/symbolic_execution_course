@@ -1122,6 +1122,11 @@ func (left *Z3Value) Rem(right Value) Value {
 			}
 		case *ConcreteFloatValue:
 			panic("unsupported!")
+		case *Z3Value:
+			return &Z3Value{
+				left.Context,
+				leftBV.SRem(castedRight.Value.(z3.BV)),
+			}
 		}
 	}
 

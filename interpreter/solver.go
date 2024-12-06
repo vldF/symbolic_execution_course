@@ -18,7 +18,6 @@ func hasSolution(state *State, context *Context) bool {
 	solver.Assert(stateRes)
 
 	println("Solver constraints:", solver.String())
-	println()
 
 	check, err := solver.Check()
 	if err != nil {
@@ -27,6 +26,7 @@ func hasSolution(state *State, context *Context) bool {
 	}
 
 	println("is sat", check)
+	println()
 
 	return check
 }

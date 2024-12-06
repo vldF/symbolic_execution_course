@@ -66,6 +66,11 @@ func Interpret(
 			break
 		}
 
+		if len(nextState.VisitedBasicBlocks) > 100 {
+			println("potentially infinitive loop found, skip it")
+			continue
+		}
+
 		processState(nextState, &context)
 	}
 
@@ -107,7 +112,13 @@ func addInitState(function *ssa.Function, ctx *Context) {
 	}
 
 	constraints := make([]BoolValue, 0)
-	memory := make(map[string]Value)
+
+	stackFrames := make([]*StackFrame, 0)
+	initialFrame := &StackFrame{
+		Values: map[string]Value{},
+	}
+	stackFrames = append(stackFrames, initialFrame)
+
 	entry := function.DomPreorder()[0]
 
 	for _, param := range function.Params {
@@ -126,7 +137,7 @@ func addInitState(function *ssa.Function, ctx *Context) {
 
 				ctx.Memory.NewStruct(typeName, fields)
 
-				memory[name] = StructPointer{
+				initialFrame.Values[name] = StructPointer{
 					ctx,
 					ctx.Memory.TypeToSortPtr[typeName],
 					ctx.Memory.AllocateStruct(),
@@ -138,7 +149,7 @@ func addInitState(function *ssa.Function, ctx *Context) {
 					Value:   ctx.Z3Context.Const(name, sort),
 				}
 
-				memory[name] = &val
+				initialFrame.Values[name] = &val
 			}
 		case *types.Named:
 			typeName := casted.Obj().Name()
@@ -152,7 +163,7 @@ func addInitState(function *ssa.Function, ctx *Context) {
 
 			ctx.Memory.NewStruct(typeName, fields)
 
-			memory[name] = StructPointer{
+			initialFrame.Values[name] = StructPointer{
 				ctx,
 				ctx.Memory.TypeToSortPtr[typeName],
 				ctx.Memory.AllocateStruct(),
@@ -162,7 +173,7 @@ func addInitState(function *ssa.Function, ctx *Context) {
 			typeName := casted.Elem().String()
 			ctx.Memory.NewArray(typeName, casted.Elem())
 
-			memory[name] = StructPointer{
+			initialFrame.Values[name] = StructPointer{
 				ctx,
 				ctx.Memory.TypeToSortPtr[typeName+"-array-wrapper"],
 				ctx.Memory.AllocateStruct(),
@@ -174,7 +185,7 @@ func addInitState(function *ssa.Function, ctx *Context) {
 	initState := State{
 		Priority:           0,
 		Constraints:        constraints,
-		Stack:              memory,
+		StackFrames:        stackFrames,
 		Statement:          entry.Instrs[0],
 		VisitedBasicBlocks: []int{entry.Index},
 	}
@@ -187,24 +198,174 @@ func visitInstruction(instr ssa.Instruction, prevState *State, ctx *Context) []*
 	case *ssa.Return:
 		return []*State{visitReturn(casted, prevState, ctx)}
 	case *ssa.If:
-		return visitIf(casted, prevState, ctx)
+		return visitIfInstr(casted, prevState, ctx)
 	case *ssa.Store:
-		return visitStore(casted, prevState, ctx)
+		return visitStoreInstr(casted, prevState, ctx)
+	case *ssa.BinOp:
+		return visitBinOpInstr(casted, prevState, ctx)
+	case *ssa.UnOp:
+		return visitUnOpInstr(casted, prevState, ctx)
+	case *ssa.Phi:
+		return visitPhiInstr(casted, prevState, ctx)
+	case *ssa.Convert:
+		return visitConvertInstr(casted, prevState, ctx)
+	case *ssa.Alloc:
+		return visitAllocInstr(casted, prevState, ctx)
+	case *ssa.Jump:
+		return visitJumpInstr(casted, prevState, ctx)
 	}
+
+	//panic("unknown instruction " + instr.String())
 
 	return createPossibleNextStates(prevState)
 }
 
-func visitStore(casted *ssa.Store, state *State, ctx *Context) []*State {
-	newState := createPossibleNextStates(state)[0]
-	storeValue := visitValue(casted.Val, state, ctx)
+func visitJumpInstr(_ *ssa.Jump, state *State, _ *Context) []*State {
+	return createPossibleNextStates(state)
+}
 
-	newState.Stack[casted.Addr.Name()] = storeValue
+func visitAllocInstr(casted *ssa.Alloc, state *State, ctx *Context) []*State {
+	newState := createPossibleNextStates(state)[0]
+	structName := casted.Type().(*types.Pointer).Elem().(*types.Named).Obj().Name()
+
+	res := &StructPointer{
+		context:    ctx,
+		SortPtr:    ctx.Memory.TypeToSortPtr[structName],
+		Ptr:        ctx.Memory.AllocateStruct(),
+		structName: structName,
+	}
+
+	saveToStack(structName, res, newState)
+	return []*State{newState}
+}
+
+func visitConvertInstr(casted *ssa.Convert, state *State, ctx *Context) []*State {
+	newState := createPossibleNextStates(state)[0]
+
+	value := visitValue(casted.X, newState, ctx)
+	var result Value
+
+	switch tpe := casted.Type().(type) {
+	case *types.Basic:
+		switch tpe.Kind() {
+		case types.Int, types.Int64, types.Int16, types.Int32, types.Int8, types.UntypedInt:
+			result = value.(ArithmeticValue)
+		case types.Float64, types.Float32, types.UntypedFloat:
+			result = value.(ArithmeticValue)
+		}
+	default:
+		panic("Unsupported cast" + casted.String())
+	}
+
+	saveToStack(casted.Name(), result, newState)
 
 	return []*State{newState}
 }
 
-func visitIf(casted *ssa.If, state *State, ctx *Context) []*State {
+func visitPhiInstr(casted *ssa.Phi, state *State, ctx *Context) []*State {
+	newState := createPossibleNextStates(state)[0]
+
+	block := casted.Block()
+	predBlocksIndexes := make([]int, 0)
+
+	for _, pred := range block.Preds {
+		predBlocksIndexes = append(predBlocksIndexes, pred.Index)
+	}
+
+	for _, visitedBlockIdx := range slices.Backward(state.VisitedBasicBlocks) {
+		if i := slices.Index(predBlocksIndexes, visitedBlockIdx); i != -1 {
+			res := visitValue(casted.Edges[i], state, ctx)
+			saveToStack(casted.Name(), res, newState)
+
+			return []*State{newState}
+		}
+	}
+
+	panic("can't determine the right edge")
+}
+
+func visitUnOpInstr(casted *ssa.UnOp, state *State, ctx *Context) []*State {
+	newState := createPossibleNextStates(state)[0]
+
+	name := casted.Name()
+	var result Value
+
+	switch casted.Op {
+	case token.MUL: // todo: unary +, -
+		result = visitDereference(casted, state, ctx)
+	}
+
+	saveToStack(name, result, newState)
+	return []*State{newState}
+}
+
+func visitBinOpInstr(casted *ssa.BinOp, state *State, ctx *Context) []*State {
+	newState := createPossibleNextStates(state)[0]
+
+	left := visitValue(casted.X, newState, ctx)
+	right := visitValue(casted.Y, newState, ctx)
+
+	var result Value
+	switch t := casted.Type().(type) {
+	case *types.Basic:
+		switch t.Kind() {
+		case types.Complex128, types.Complex64, types.UntypedComplex:
+			result = visitComplexBinOp(casted, newState, ctx)
+		default:
+			switch casted.Op {
+			case token.ADD:
+				result = left.(ArithmeticValue).Add(right.(ArithmeticValue))
+			case token.SUB:
+				result = left.(ArithmeticValue).Sub(right.(ArithmeticValue))
+			case token.MUL:
+				result = left.(ArithmeticValue).Mul(right.(ArithmeticValue))
+			case token.QUO:
+				result = left.(ArithmeticValue).Div(right.(ArithmeticValue))
+			case token.GTR:
+				result = left.(ArithmeticValue).Gt(right.(ArithmeticValue))
+			case token.GEQ:
+				result = left.(ArithmeticValue).Ge(right.(ArithmeticValue))
+			case token.LSS:
+				result = left.(ArithmeticValue).Lt(right.(ArithmeticValue))
+			case token.LEQ:
+				result = left.(ArithmeticValue).Le(right.(ArithmeticValue))
+			case token.REM:
+				result = left.(ArithmeticValue).Rem(right.(ArithmeticValue))
+			case token.EQL:
+				result = left.(ArithmeticValue).Eq(right.(ArithmeticValue))
+			case token.NEQ:
+				result = left.(ArithmeticValue).NotEq(right.(ArithmeticValue))
+			case token.OR:
+				result = left.Or(right)
+			case token.AND:
+				result = left.And(right)
+			case token.XOR:
+				result = left.Xor(right)
+			case token.SHL:
+				result = left.(ArithmeticValue).Shl(right.(ArithmeticValue))
+			case token.SHR:
+				result = left.(ArithmeticValue).Shr(right.(ArithmeticValue))
+			default:
+				panic("unreachable" + casted.String())
+			}
+		}
+	}
+
+	saveToStack(casted.Name(), result, newState)
+
+	return []*State{newState}
+}
+
+func visitStoreInstr(casted *ssa.Store, state *State, ctx *Context) []*State {
+	newState := createPossibleNextStates(state)[0]
+	storeValue := visitValue(casted.Val, state, ctx)
+
+	newState.LastStackFrame().Values[casted.Addr.Name()] = storeValue
+
+	return []*State{newState}
+}
+
+func visitIfInstr(casted *ssa.If, state *State, ctx *Context) []*State {
 	possibleStates := createPossibleNextStates(state)
 	result := make([]*State, 0)
 
@@ -247,42 +408,25 @@ func handleDone(state *State, ctx *Context) {
 	ctx.Results = append(ctx.Results, state)
 
 	fmt.Println("handled!")
-	fmt.Println("Stack:", state.Stack)
+	fmt.Println("Stack:", state.LastStackFrame().Values)
 	fmt.Println("Constraints:", state.Constraints)
 	fmt.Println("Statement", state.Statement)
 }
 
 func visitValue(val ssa.Value, state *State, ctx *Context) Value {
 	name := val.Name()
-	if precalculatedValue := state.Stack[name]; precalculatedValue != nil {
+	if precalculatedValue := state.GetValueFromStack(name); precalculatedValue != nil {
 		return precalculatedValue
 	}
 
 	switch casted := val.(type) {
-	case *ssa.BinOp:
-		switch t := casted.Type().(type) {
-		case *types.Basic:
-			switch t.Kind() {
-			case types.Complex128, types.Complex64, types.UntypedComplex:
-				return visitComplexBinOp(casted, state, ctx)
-			}
-		}
-		return visitSimpleBinOp(casted, state, ctx)
 	case *ssa.Parameter:
 		return visitParameter(casted, state, ctx)
 	case *ssa.Const:
 		return visitConst(casted, ctx)
-	case *ssa.Phi:
-		return visitPhi(casted, state, ctx)
-	case *ssa.Convert:
-		return visitConvert(casted, state, ctx)
-	case *ssa.UnOp:
-		return visitUnary(casted, state, ctx)
 	case *ssa.FieldAddr:
 		return visitFieldAddr(casted, state, ctx)
-	case *ssa.Alloc:
-		return visitAlloc(casted, state, ctx)
-	case *ssa.Call:
+	case *ssa.Call: // todo: move to instructions
 		return visitCall(casted, state, ctx)
 	case *ssa.IndexAddr:
 		return visitIndexAddr(casted, state, ctx)
@@ -377,8 +521,6 @@ func visitComplexBinOp(expr *ssa.BinOp, state *State, ctx *Context) Value {
 		ctx,
 	)
 
-	rememberValue(expr.Name(), result, state)
-
 	return result
 }
 
@@ -446,41 +588,11 @@ func visitCall(call *ssa.Call, state *State, ctx *Context) Value {
 	panic("unsupported call")
 }
 
-func visitAlloc(casted *ssa.Alloc, state *State, ctx *Context) Value {
-	structName := casted.Type().(*types.Pointer).Elem().(*types.Named).Obj().Name()
-	if state.Stack[structName] != nil {
-		return state.Stack[structName]
-	}
-
-	res := &StructPointer{
-		context:    ctx,
-		SortPtr:    ctx.Memory.TypeToSortPtr[structName],
-		Ptr:        ctx.Memory.AllocateStruct(),
-		structName: structName,
-	}
-
-	rememberValue(structName, res, state)
-	return res
-}
-
 func visitFieldAddr(casted *ssa.FieldAddr, state *State, ctx *Context) Value {
 	structPtr := visitValue(casted.X, state, ctx)
 	fieldIdx := casted.Field
 	field := ctx.Memory.GetStructField(structPtr.(StructPointer), fieldIdx)
 	return field
-}
-
-func visitUnary(casted *ssa.UnOp, state *State, ctx *Context) Value {
-	name := casted.Name()
-	var result Value
-
-	switch casted.Op {
-	case token.MUL:
-		result = visitDereference(casted, state, ctx)
-	}
-
-	rememberValue(name, result, state)
-	return result
 }
 
 func visitDereference(casted *ssa.UnOp, state *State, ctx *Context) Value {
@@ -505,32 +617,7 @@ func visitDereference(casted *ssa.UnOp, state *State, ctx *Context) Value {
 }
 
 func visitParameter(casted *ssa.Parameter, state *State, ctx *Context) Value {
-	return (state.Stack)[casted.Name()]
-}
-
-func visitConvert(casted *ssa.Convert, state *State, ctx *Context) Value {
-	value := visitValue(casted.X, state, ctx)
-	switch tpe := casted.Type().(type) {
-	case *types.Basic:
-		switch tpe.Kind() {
-		case types.Int, types.Int64, types.Int16, types.Int32, types.Int8, types.UntypedInt:
-			return value.(ArithmeticValue)
-		case types.Float64, types.Float32, types.UntypedFloat:
-			return value.(ArithmeticValue)
-		}
-	}
-
-	panic("Unsupported cast" + casted.String())
-}
-
-func visitPhi(casted *ssa.Phi, state *State, ctx *Context) Value {
-	for idx, pred := range casted.Block().Preds {
-		if slices.Index(state.VisitedBasicBlocks, pred.Index) != -1 {
-			return visitValue(casted.Edges[idx], state, ctx)
-		}
-	}
-
-	panic("can't determine the right edge")
+	return (state.LastStackFrame().Values)[casted.Name()]
 }
 
 func visitConst(value *ssa.Const, ctx *Context) Value {
@@ -552,53 +639,6 @@ func visitConst(value *ssa.Const, ctx *Context) Value {
 	}
 
 	panic("Unsupported type" + value.String())
-}
-
-func visitSimpleBinOp(expr *ssa.BinOp, state *State, ctx *Context) Value {
-	left := visitValue(expr.X, state, ctx)
-	right := visitValue(expr.Y, state, ctx)
-
-	var result Value
-	switch expr.Op {
-	case token.ADD:
-		result = left.(ArithmeticValue).Add(right.(ArithmeticValue))
-	case token.SUB:
-		result = left.(ArithmeticValue).Sub(right.(ArithmeticValue))
-	case token.MUL:
-		result = left.(ArithmeticValue).Mul(right.(ArithmeticValue))
-	case token.QUO:
-		result = left.(ArithmeticValue).Div(right.(ArithmeticValue))
-	case token.GTR:
-		result = left.(ArithmeticValue).Gt(right.(ArithmeticValue))
-	case token.GEQ:
-		result = left.(ArithmeticValue).Ge(right.(ArithmeticValue))
-	case token.LSS:
-		result = left.(ArithmeticValue).Lt(right.(ArithmeticValue))
-	case token.LEQ:
-		result = left.(ArithmeticValue).Le(right.(ArithmeticValue))
-	case token.REM:
-		result = left.(ArithmeticValue).Rem(right.(ArithmeticValue))
-	case token.EQL:
-		result = left.(ArithmeticValue).Eq(right.(ArithmeticValue))
-	case token.NEQ:
-		result = left.(ArithmeticValue).NotEq(right.(ArithmeticValue))
-	case token.OR:
-		result = left.Or(right)
-	case token.AND:
-		result = left.And(right)
-	case token.XOR:
-		result = left.Xor(right)
-	case token.SHL:
-		result = left.(ArithmeticValue).Shl(right.(ArithmeticValue))
-	case token.SHR:
-		result = left.(ArithmeticValue).Shr(right.(ArithmeticValue))
-	default:
-		panic("unreachable" + expr.String())
-	}
-
-	rememberValue(expr.Name(), result, state)
-
-	return result
 }
 
 func createPossibleNextStates(state *State) []*State {
@@ -635,6 +675,6 @@ func createPossibleNextStates(state *State) []*State {
 	return result
 }
 
-func rememberValue(name string, value Value, state *State) {
-	state.Stack[name] = value
+func saveToStack(name string, value Value, state *State) {
+	state.LastStackFrame().Values[name] = value
 }

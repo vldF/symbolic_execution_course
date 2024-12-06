@@ -117,13 +117,14 @@ func addAsserts(states []*interpreter.State, solver *z3.Solver) {
 
 func addArgs(args map[string]any, state *interpreter.State, solver *z3.Solver, ctx *interpreter.Context) {
 	res := make([]z3.Bool, 0)
+	initialStackFrame := state.StackFrames[0]
 
 	for argName, argValue := range args {
 		switch argCasted := argValue.(type) {
 		case StructArg:
 			argSortPtr := ctx.Memory.TypeToSortPtr[argCasted.typeName]
 			argCell := ctx.Memory.Mem[argSortPtr].(interpreter.StructValueCell)
-			argPtr := state.Stack[argName].(interpreter.StructPointer)
+			argPtr := initialStackFrame.Values[argName].(interpreter.StructPointer)
 			for i, fieldValue := range argCasted.fields {
 				fieldSortPtr := argCell.Fields[i]
 				cell := ctx.Memory.Mem[fieldSortPtr].(*interpreter.PrimitiveValueCell)
@@ -144,7 +145,7 @@ func addArgs(args map[string]any, state *interpreter.State, solver *z3.Solver, c
 			typeName := "complex"
 			complexSortPtr := ctx.Memory.TypeToSortPtr[typeName]
 			argCell := ctx.Memory.Mem[complexSortPtr].(interpreter.StructValueCell)
-			argPtr := state.Stack[argName].(interpreter.StructPointer)
+			argPtr := initialStackFrame.Values[argName].(interpreter.StructPointer)
 
 			realCell := ctx.Memory.Mem[argCell.Fields[0]].(*interpreter.PrimitiveValueCell)
 			realValue := real(argCasted)
@@ -163,7 +164,7 @@ func addArgs(args map[string]any, state *interpreter.State, solver *z3.Solver, c
 			sortPtr := ctx.Memory.TypeToSortPtr[typeName+"-array-wrapper"]
 			wrapperSortPtr := ctx.Memory.Mem[sortPtr].(interpreter.ArrayWrapperCell)
 
-			wrapperPtr := state.Stack[argName].(interpreter.StructPointer)
+			wrapperPtr := initialStackFrame.Values[argName].(interpreter.StructPointer)
 
 			lenConst := wrapperSortPtr.GetLen(wrapperPtr.Ptr, ctx).AsZ3Value().Value.(z3.BV)
 			expectedLen := ctx.Z3Context.FromInt(int64(len(argCasted.elements)), ctx.TypesContext.IntSort).(z3.BV)
@@ -187,7 +188,7 @@ func addArgs(args map[string]any, state *interpreter.State, solver *z3.Solver, c
 			continue
 		}
 
-		argConst := state.Stack[argName]
+		argConst := initialStackFrame.Values[argName]
 		z3Value := ctx.GoToZ3Value(argValue)
 		constraint := argConst.Eq(&z3Value).AsZ3Value().Value.(z3.Bool)
 
