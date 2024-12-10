@@ -11,9 +11,10 @@ type Memory struct {
 }
 
 type Pointer struct {
-	ctx  *Context
-	ptr  Value
-	sPtr sortPtr
+	ctx              *Context
+	ptr              Value
+	sPtr             sortPtr
+	arrayElemSortPtr sortPtr
 }
 
 type StructureDescriptor struct {
@@ -71,6 +72,7 @@ func (mem *Memory) Store(ptr *Pointer, value Value) {
 	if _, ok := mem.memoryLines[sPtr]; !ok {
 		var arrSort z3.Sort
 
+		// todo
 		switch string(sPtr) {
 		case "int":
 			arrSort = mem.ctx.Z3Context.ArraySort(mem.ctx.TypesContext.Pointer, mem.ctx.TypesContext.IntSort)
@@ -204,6 +206,103 @@ func (mem *Memory) GetFieldPointer(structPtr *Pointer, fieldIdx int) Value {
 		ptr:  structPtr.ptr,
 		sPtr: fieldSortPtr,
 	}
+}
+
+func (mem *Memory) initMemoryWrapper() {
+	fields := make(map[int]string)
+	fields[0] = "arrays-pointer"
+	fields[1] = "int"
+
+	mem.NewStruct("array-wrapper", fields)
+	arrSort := mem.ctx.Z3Context.ArraySort(mem.ctx.TypesContext.Pointer, mem.ctx.TypesContext.IntSort)
+	mem.memoryLines["int"] = mem.ctx.Z3Context.FreshConst("int-line", arrSort).(z3.Array)
+}
+
+func (mem *Memory) AllocateArray(elementType string) *Pointer {
+	mem.initMemoryWrapper()
+
+	wrapperPtr := mem.NewPtr("array-wrapper")
+	elementSortPtr := sortPtr(elementType)
+	elementsLineSortPtr := sortPtr("array-" + elementType)
+	wrapperPtr.arrayElemSortPtr = elementSortPtr
+
+	z3Ctx := mem.ctx.Z3Context
+	elementSort := mem.ctx.TypesContext.Pointer
+
+	lineSort := z3Ctx.ArraySort(
+		mem.ctx.TypesContext.Pointer,
+		z3Ctx.ArraySort(mem.ctx.TypesContext.ArrayIndexSort, elementSort),
+	)
+	lineArray := z3Ctx.Const(string(elementsLineSortPtr), lineSort).(z3.Array)
+
+	mem.memoryLines[elementsLineSortPtr] = lineArray
+
+	return wrapperPtr
+}
+
+func (mem *Memory) StoreAtArrayIndex(arrayPtr *Pointer, index int, value Value) {
+	elementSortPtr := arrayPtr.arrayElemSortPtr
+	elementsLineSortPtr := "array-" + elementSortPtr
+	if _, ok := mem.memoryLines[elementSortPtr]; !ok {
+		panic("unknown array of " + elementSortPtr)
+	}
+
+	valuePointer := mem.NewPtr(string(arrayPtr.arrayElemSortPtr))
+	mem.Store(valuePointer, value)
+
+	line := mem.memoryLines[elementsLineSortPtr]
+	array := line.Select(arrayPtr.ptr.AsZ3Value().Value).(z3.Array)
+
+	indexValue := mem.ctx.Z3Context.FromInt(int64(index), mem.ctx.TypesContext.ArrayIndexSort)
+	array = array.Store(indexValue, valuePointer.AsZ3Value().Value)
+	line = line.Store(arrayPtr.ptr.AsZ3Value().Value, array)
+	mem.memoryLines[elementsLineSortPtr] = line
+}
+
+func (mem *Memory) LoadByArrayIndex(arrayPtr *Pointer, index Value) Value {
+	elementSortPtr := arrayPtr.arrayElemSortPtr
+	valuePointerValue := mem.GetArrayElementPointer(arrayPtr, index)
+
+	valuePtr := &Pointer{
+		ctx:  mem.ctx,
+		ptr:  valuePointerValue,
+		sPtr: elementSortPtr,
+	}
+
+	value := mem.Load(valuePtr)
+	return value
+}
+
+func (mem *Memory) GetArrayElementPointer(arrayPtr *Pointer, index Value) *Pointer {
+	elementSortPtr := arrayPtr.arrayElemSortPtr
+	elementsLineSortPtr := "array-" + elementSortPtr
+	if _, ok := mem.memoryLines[elementsLineSortPtr]; !ok {
+		panic("unknown array of " + elementSortPtr)
+	}
+
+	line := mem.memoryLines[elementsLineSortPtr]
+	array := line.Select(arrayPtr.ptr.AsZ3Value().Value).(z3.Array)
+
+	valuePtrZ3Value := array.Select(index.AsZ3Value().Value).(z3.Value)
+	valuePtrValue := &Z3Value{
+		Context: mem.ctx,
+		Value:   valuePtrZ3Value,
+	}
+	valuePtr := &Pointer{
+		ctx:  mem.ctx,
+		ptr:  valuePtrValue,
+		sPtr: elementSortPtr,
+	}
+
+	return valuePtr
+}
+
+func (mem *Memory) SetArrayLen(arrayPtr *Pointer, len Value) {
+	mem.StoreField(arrayPtr, 1, len)
+}
+
+func (mem *Memory) GetArrayLen(arrayPtr *Pointer) Value {
+	return mem.LoadField(arrayPtr, 1)
 }
 
 func (ptr *Pointer) AsZ3Value() Z3Value {

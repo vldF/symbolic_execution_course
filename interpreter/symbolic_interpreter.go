@@ -19,11 +19,12 @@ func Interpret(
 	z3Context := z3.NewContext(z3Config)
 
 	typesContext := TypesContext{
-		IntBits:     bits.UintSize,
-		IntSort:     z3Context.BVSort(bits.UintSize), // todo: add dedicated sorts for various int sizes
-		FloatSort:   z3Context.FloatSort(11, 53),
-		Pointer:     z3Context.BVSort(bits.UintSize),
-		UnknownSort: z3Context.UninterpretedSort("unknown"),
+		IntBits:        bits.UintSize,
+		IntSort:        z3Context.BVSort(bits.UintSize), // todo: add dedicated sorts for various int sizes
+		ArrayIndexSort: z3Context.BVSort(64),
+		FloatSort:      z3Context.FloatSort(11, 53),
+		Pointer:        z3Context.BVSort(bits.UintSize),
+		UnknownSort:    z3Context.UninterpretedSort("unknown"),
 	}
 
 	states := heap.HeapInit[*State](func(state *State, state2 *State) bool {
@@ -196,11 +197,38 @@ func visitInstruction(instr ssa.Instruction, prevState *State, ctx *Context) []*
 		return visitJumpInstr(casted, prevState, ctx)
 	case *ssa.Slice:
 		return visitSliceInstr(casted, prevState, ctx)
+	case *ssa.IndexAddr:
+		return visitIndexAddrInstr(casted, prevState, ctx)
+	case *ssa.MakeSlice:
+		return visitMakeSliceInstr(casted, prevState, ctx)
 	}
 
 	//panic("unknown instruction " + instr.String())
 
 	return createPossibleNextStates(prevState)
+}
+
+func visitMakeSliceInstr(casted *ssa.MakeSlice, state *State, ctx *Context) []*State {
+	newState := createPossibleNextStates(state)[0]
+	elementType := GetTypeName(casted.Type().(*types.Slice).Elem())
+	arrayPtr := ctx.Memory.AllocateArray(elementType)
+	saveToStack(casted.Name(), arrayPtr, newState)
+
+	arrayLen := visitValue(casted.Len, state, ctx)
+	ctx.Memory.SetArrayLen(arrayPtr, arrayLen)
+
+	return []*State{newState}
+}
+
+func visitIndexAddrInstr(casted *ssa.IndexAddr, state *State, ctx *Context) []*State {
+	newState := createPossibleNextStates(state)[0]
+	arrayPtr := visitValue(casted.X, newState, ctx).(*Pointer)
+	index := visitValue(casted.Index, newState, ctx)
+	arrayElementPointer := ctx.Memory.GetArrayElementPointer(arrayPtr, index)
+
+	saveToStack(casted.Name(), arrayElementPointer, newState)
+
+	return []*State{newState}
 }
 
 func visitSliceInstr(casted *ssa.Slice, state *State, ctx *Context) []*State {
@@ -220,9 +248,9 @@ func visitAllocInstr(casted *ssa.Alloc, state *State, ctx *Context) []*State {
 	elem := casted.Type().(*types.Pointer).Elem()
 	var result Value
 	switch elem := elem.(type) {
-	//case *types.Array:
-	//	elementType := elem.Elem()
-	//	result = allocateArray(elementType, ctx)
+	case *types.Array:
+		elementType := GetTypeName(elem.Elem())
+		result = ctx.Memory.AllocateArray(elementType)
 	case *types.Named:
 		structName := elem.Obj().Name()
 		ctx.Memory.NewStruct(structName, GetStructureFields(elem))
@@ -433,10 +461,17 @@ func visitValue(val ssa.Value, state *State, ctx *Context) Value {
 	case *ssa.Call: // todo: move to instructions
 		return visitCall(casted, state, ctx)
 	case *ssa.IndexAddr:
-		//return visitIndexAddr(casted, state, ctx)
+		return visitIndexAddr(casted, state, ctx)
 	}
 
 	panic("Unsupported value " + val.String())
+}
+
+func visitIndexAddr(casted *ssa.IndexAddr, state *State, ctx *Context) Value {
+	arrayPtr := visitValue(casted.X, state, ctx).(*Pointer)
+	index := visitValue(casted.Index, state, ctx)
+
+	return ctx.Memory.LoadByArrayIndex(arrayPtr, index)
 }
 
 func visitComplexBinOp(expr *ssa.BinOp, state *State, ctx *Context) Value {
@@ -548,9 +583,8 @@ func visitCall(call *ssa.Call, state *State, ctx *Context) Value {
 			argPtr := visitValue(call.Call.Args[0], state, ctx).(*Pointer)
 			return ctx.Memory.LoadField(argPtr, 1)
 		case "len":
-			//arg := visitValue(call.Call.Args[0], state, ctx).(StructPointer)
-			//cell := ctx.Memory.Mem[arg.SortPtr].(ArrayWrapperCell)
-			//return cell.GetLen(arg.Ptr, ctx)
+			arrayPtr := visitValue(call.Call.Args[0], state, ctx).(*Pointer)
+			return ctx.Memory.GetArrayLen(arrayPtr)
 		}
 	}
 

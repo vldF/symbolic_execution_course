@@ -48,3 +48,28 @@ func TestArrayAllocateStoreRead(t *testing.T) {
 		SymbolicMachineUnsatTest("memory", "ArrayAllocateStoreRead", args, expected+1, t)
 	}
 }
+
+func TestArrayAllocateStoreReadDynamic(t *testing.T) {
+	argVariants := [][]int{{0, 0}, {1, 2}, {5, 10}, {10, 0}, {10, 10}}
+
+	for _, variant := range argVariants {
+		args := make(map[string]any)
+		args["a"] = variant[0]
+		args["idx"] = variant[1]
+
+		expected := testdata.ArrayAllocateStoreReadDynamic(variant[0], variant[1])
+
+		SymbolicMachineSatTest("memory", "ArrayAllocateStoreReadDynamic", args, expected, t)
+		SymbolicMachineUnsatTest("memory", "ArrayAllocateStoreReadDynamic", args, expected+1, t)
+	}
+}
+
+func TestArrayAllocateStoreReadStore(t *testing.T) {
+	args := make(map[string]any)
+
+	expected := testdata.ArrayAllocateStoreReadStore()
+
+	SymbolicMachineSatTest("memory", "ArrayAllocateStoreReadStore", args, expected, t)
+	SymbolicMachineUnsatTest("memory", "ArrayAllocateStoreReadStore", args, expected+1, t)
+	SymbolicMachineUnsatTest("memory", "ArrayAllocateStoreReadStore", args, -1, t)
+}

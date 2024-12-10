@@ -17,9 +17,10 @@ type Context struct {
 }
 
 type TypesContext struct {
-	IntBits   int
-	IntSort   z3.Sort
-	FloatSort z3.Sort
+	IntBits        int
+	IntSort        z3.Sort
+	ArrayIndexSort z3.Sort
+	FloatSort      z3.Sort
 
 	Pointer     z3.Sort
 	UnknownSort z3.Sort
