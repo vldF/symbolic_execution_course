@@ -1,5 +1,17 @@
 package testdata
 
+func ComplexReal(a complex128) float64 {
+	return real(a)
+}
+
+func ComplexImag(a complex128) float64 {
+	return imag(a)
+}
+
+func ComplexId(a complex128) complex128 {
+	return a
+}
+
 func basicComplexOperations(a complex128, b complex128) complex128 {
 	if real(a) > real(b) {
 		return a + b
@@ -26,7 +38,7 @@ func complexComparison(a complex128, b complex128) string {
 	return "Magnitudes are equal"
 }
 
-func complexOperations(a complex128, b complex128) complex128 {
+func ComplexOperations(a complex128, b complex128) complex128 {
 	if real(a) == 0 && imag(a) == 0 {
 		return b
 	} else if real(b) == 0 && imag(b) == 0 {
