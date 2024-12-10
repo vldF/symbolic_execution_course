@@ -42,15 +42,10 @@ func Interpret(
 		Memory:       nil,
 	}
 	context.Memory = &Memory{
-		context:       &context,
-		Mem:           make(map[sortPointer]interface{}),
-		TypeToSortPtr: make(map[string]sortPointer),
+		ctx:         &context,
+		memoryLines: make(map[sortPtr]z3.Array),
+		structures:  make(map[sortPtr]*StructureDescriptor),
 	}
-
-	intArrSort := z3Context.ArraySort(typesContext.IntSort, typesContext.IntSort)
-	floatArrSort := z3Context.ArraySort(typesContext.IntSort, typesContext.FloatSort)
-	context.Memory.Mem[intPtr] = &PrimitiveValueCell{z3Context.Const("ints", intArrSort).(z3.Array)}
-	context.Memory.Mem[floatPtr] = &PrimitiveValueCell{z3Context.Const("floats", floatArrSort).(z3.Array)}
 
 	ret := getReturnConst(function, &context)
 	context.ReturnValue = &Z3Value{
@@ -130,19 +125,12 @@ func addInitState(function *ssa.Function, ctx *Context) {
 			case types.Complex128, types.Complex64, types.UntypedComplex:
 				typeName := "complex"
 
-				fields := map[int]types.BasicKind{
-					0: types.Float64,
-					1: types.Float64,
+				fields := map[int]string{
+					0: "float64",
+					1: "float64",
 				}
 
 				ctx.Memory.NewStruct(typeName, fields)
-
-				initialFrame.Values[name] = StructPointer{
-					ctx,
-					ctx.Memory.TypeToSortPtr[typeName],
-					ctx.Memory.AllocateStruct(),
-					typeName,
-				}
 			default:
 				val := Z3Value{
 					Context: ctx,
@@ -155,30 +143,23 @@ func addInitState(function *ssa.Function, ctx *Context) {
 			typeName := casted.Obj().Name()
 			struct_ := casted.Underlying().(*types.Struct)
 
-			fields := make(map[int]types.BasicKind)
+			fields := make(map[int]string)
 			fieldsCount := struct_.NumFields()
 			for i := 0; i < fieldsCount; i++ {
-				fields[i] = struct_.Field(i).Type().(*types.Basic).Kind()
+				fields[i] = struct_.Field(i).Type().(*types.Basic).Name()
 			}
 
 			ctx.Memory.NewStruct(typeName, fields)
-
-			initialFrame.Values[name] = StructPointer{
-				ctx,
-				ctx.Memory.TypeToSortPtr[typeName],
-				ctx.Memory.AllocateStruct(),
-				typeName,
-			}
-		case *types.Slice:
-			typeName := casted.Elem().String()
-			ctx.Memory.NewArray(typeName, casted.Elem())
-
-			initialFrame.Values[name] = StructPointer{
-				ctx,
-				ctx.Memory.TypeToSortPtr[typeName+"-array-wrapper"],
-				ctx.Memory.AllocateStruct(),
-				typeName + "-array-wrapper",
-			}
+			//case *types.Slice:
+			//	typeName := casted.Elem().String()
+			//	ctx.Memory.NewArray(typeName, casted.Elem())
+			//
+			//	initialFrame.Values[name] = StructPointer{
+			//		ctx,
+			//		ctx.Memory.TypeToSortPtr[typeName+"-array-wrapper"],
+			//		ctx.Memory.AllocateStruct(),
+			//		typeName + "-array-wrapper",
+			//	}
 		}
 	}
 
@@ -213,11 +194,21 @@ func visitInstruction(instr ssa.Instruction, prevState *State, ctx *Context) []*
 		return visitAllocInstr(casted, prevState, ctx)
 	case *ssa.Jump:
 		return visitJumpInstr(casted, prevState, ctx)
+	case *ssa.Slice:
+		return visitSliceInstr(casted, prevState, ctx)
 	}
 
 	//panic("unknown instruction " + instr.String())
 
 	return createPossibleNextStates(prevState)
+}
+
+func visitSliceInstr(casted *ssa.Slice, state *State, ctx *Context) []*State {
+	newState := createPossibleNextStates(state)[0]
+	result := visitValue(casted.X, state, ctx)
+	saveToStack(casted.Name(), result, newState)
+
+	return []*State{newState}
 }
 
 func visitJumpInstr(_ *ssa.Jump, state *State, _ *Context) []*State {
@@ -226,16 +217,21 @@ func visitJumpInstr(_ *ssa.Jump, state *State, _ *Context) []*State {
 
 func visitAllocInstr(casted *ssa.Alloc, state *State, ctx *Context) []*State {
 	newState := createPossibleNextStates(state)[0]
-	structName := casted.Type().(*types.Pointer).Elem().(*types.Named).Obj().Name()
-
-	res := &StructPointer{
-		context:    ctx,
-		SortPtr:    ctx.Memory.TypeToSortPtr[structName],
-		Ptr:        ctx.Memory.AllocateStruct(),
-		structName: structName,
+	elem := casted.Type().(*types.Pointer).Elem()
+	var result Value
+	switch elem := elem.(type) {
+	//case *types.Array:
+	//	elementType := elem.Elem()
+	//	result = allocateArray(elementType, ctx)
+	case *types.Named:
+		structName := elem.Obj().Name()
+		ctx.Memory.NewStruct(structName, GetStructureFields(elem))
+		result = ctx.Memory.NewPtr(structName)
+	default:
+		panic("unknown alloc type " + elem.String())
 	}
 
-	saveToStack(structName, res, newState)
+	saveToStack(casted.Name(), result, newState)
 	return []*State{newState}
 }
 
@@ -243,15 +239,18 @@ func visitConvertInstr(casted *ssa.Convert, state *State, ctx *Context) []*State
 	newState := createPossibleNextStates(state)[0]
 
 	value := visitValue(casted.X, newState, ctx)
+	if ptr, ok := value.(*Pointer); ok {
+		value = ctx.Memory.Load(ptr)
+	}
 	var result Value
 
 	switch tpe := casted.Type().(type) {
 	case *types.Basic:
 		switch tpe.Kind() {
 		case types.Int, types.Int64, types.Int16, types.Int32, types.Int8, types.UntypedInt:
-			result = value.(ArithmeticValue)
+			result = value.(ArithmeticValue).AsInt()
 		case types.Float64, types.Float32, types.UntypedFloat:
-			result = value.(ArithmeticValue)
+			result = value.(ArithmeticValue).AsFloat()
 		}
 	default:
 		panic("Unsupported cast" + casted.String())
@@ -360,7 +359,12 @@ func visitStoreInstr(casted *ssa.Store, state *State, ctx *Context) []*State {
 	newState := createPossibleNextStates(state)[0]
 	storeValue := visitValue(casted.Val, state, ctx)
 
-	newState.LastStackFrame().Values[casted.Addr.Name()] = storeValue
+	if _, ok := casted.Addr.Type().(*types.Pointer); ok {
+		ptr := visitValue(casted.Addr, state, ctx).(*Pointer)
+		ctx.Memory.Store(ptr, storeValue)
+	} else {
+		newState.LastStackFrame().Values[casted.Addr.Name()] = storeValue
+	}
 
 	return []*State{newState}
 }
@@ -393,8 +397,8 @@ func visitReturn(instr *ssa.Return, state *State, ctx *Context) *State {
 
 	returnValue := visitValue(instr.Results[0], newState, ctx)
 	switch castedReturnValue := returnValue.(type) {
-	case StructPointer:
-		newState.Constraints = append(newState.Constraints, ctx.ReturnValue.Eq(castedReturnValue.Ptr.value))
+	case *Pointer:
+		newState.Constraints = append(newState.Constraints, ctx.ReturnValue.Eq(castedReturnValue.ptr))
 	default:
 		newState.Constraints = append(newState.Constraints, ctx.ReturnValue.Eq(returnValue))
 	}
@@ -429,28 +433,15 @@ func visitValue(val ssa.Value, state *State, ctx *Context) Value {
 	case *ssa.Call: // todo: move to instructions
 		return visitCall(casted, state, ctx)
 	case *ssa.IndexAddr:
-		return visitIndexAddr(casted, state, ctx)
+		//return visitIndexAddr(casted, state, ctx)
 	}
 
 	panic("Unsupported value " + val.String())
 }
 
-func visitIndexAddr(casted *ssa.IndexAddr, state *State, ctx *Context) Value {
-	structPtr := visitValue(casted.X, state, ctx).(StructPointer)
-	idxValue := visitValue(casted.Index, state, ctx)
-
-	cell := ctx.Memory.Mem[structPtr.SortPtr].(ArrayWrapperCell)
-	val := cell.GetValue(structPtr.Ptr, ctx).AsZ3Value().Value.(z3.Array).Select(idxValue.AsZ3Value().Value.(z3.BV))
-
-	return &Z3Value{
-		Context: ctx,
-		Value:   val,
-	}
-}
-
 func visitComplexBinOp(expr *ssa.BinOp, state *State, ctx *Context) Value {
-	left := visitValue(expr.X, state, ctx).(StructPointer)
-	right := visitValue(expr.Y, state, ctx).(StructPointer)
+	left := visitValue(expr.X, state, ctx).(*Pointer)
+	right := visitValue(expr.Y, state, ctx).(*Pointer)
 
 	var op func(
 		leftReal ArithmeticValue,
@@ -513,57 +504,35 @@ func visitComplexBinOp(expr *ssa.BinOp, state *State, ctx *Context) Value {
 		panic("unreachable" + expr.String())
 	}
 
-	result := complexBinOp(
-		left,
-		right,
-		op,
-		state,
-		ctx,
-	)
+	result := complexBinOp(left, right, op, ctx)
 
 	return result
 }
 
 func complexBinOp(
-	left StructPointer,
-	right StructPointer,
-	op func(leftReal ArithmeticValue, leftImag ArithmeticValue, rightReal ArithmeticValue, rightImag ArithmeticValue) (Value, Value),
-	state *State,
-	ctx *Context,
-) StructPointer {
-	if left.structName != right.structName {
-		panic("unsupported operation")
-	}
-
-	complexSortName := left.structName
-	complexSortPtr := ctx.Memory.TypeToSortPtr[complexSortName]
-	complexSortCell := ctx.Memory.Mem[complexSortPtr].(StructValueCell)
-
-	leftReal, leftImag := getRealAndImagValues(left.Ptr, complexSortCell, ctx)
-	rightReal, rightImag := getRealAndImagValues(right.Ptr, complexSortCell, ctx)
+	left *Pointer,
+	right *Pointer,
+	op func(
+		leftReal ArithmeticValue,
+		leftImag ArithmeticValue,
+		rightReal ArithmeticValue,
+		rightImag ArithmeticValue) (Value, Value), ctx *Context,
+) *Pointer {
+	leftReal, leftImag := getRealAndImagValues(left, ctx)
+	rightReal, rightImag := getRealAndImagValues(right, ctx)
 
 	resultRealVal, resultImagVal := op(leftReal, leftImag, rightReal, rightImag)
-	resultPtr := ctx.Memory.getNextPtr()
-	resultReal, resultImag := getRealAndImagValues(resultPtr, complexSortCell, ctx)
-	state.Constraints = append(state.Constraints, resultRealVal.Eq(resultReal))
-	state.Constraints = append(state.Constraints, resultImagVal.Eq(resultImag))
 
-	return StructPointer{
-		context:    ctx,
-		SortPtr:    complexSortPtr,
-		Ptr:        resultPtr,
-		structName: complexSortName,
-	}
+	resultPtr := ctx.Memory.NewPtr("complex")
+	ctx.Memory.StoreField(resultPtr, 0, resultRealVal)
+	ctx.Memory.StoreField(resultPtr, 1, resultImagVal)
+
+	return resultPtr
 }
 
-func getRealAndImagValues(ptr ValuePointer, complexSortCell StructValueCell, ctx *Context) (ArithmeticValue, ArithmeticValue) {
-	realSortPtr := complexSortCell.Fields[0]
-	realSortCell := ctx.Memory.Mem[realSortPtr].(*PrimitiveValueCell)
-	realValue := realSortCell.getValue(ptr, ctx)
-
-	imagSortPtr := complexSortCell.Fields[1]
-	imagSortCell := ctx.Memory.Mem[imagSortPtr].(*PrimitiveValueCell)
-	imagValue := imagSortCell.getValue(ptr, ctx)
+func getRealAndImagValues(ptr *Pointer, ctx *Context) (ArithmeticValue, ArithmeticValue) {
+	realValue := ctx.Memory.LoadField(ptr, 0)
+	imagValue := ctx.Memory.LoadField(ptr, 1)
 
 	return realValue.(ArithmeticValue), imagValue.(ArithmeticValue)
 }
@@ -573,15 +542,15 @@ func visitCall(call *ssa.Call, state *State, ctx *Context) Value {
 	case *ssa.Builtin:
 		switch castedCallValue.Name() {
 		case "real":
-			arg := visitValue(call.Call.Args[0], state, ctx).(StructPointer)
-			return ctx.Memory.GetStructField(arg, 0)
+			argPtr := visitValue(call.Call.Args[0], state, ctx).(*Pointer)
+			return ctx.Memory.LoadField(argPtr, 0)
 		case "imag":
-			arg := visitValue(call.Call.Args[0], state, ctx).(StructPointer)
-			return ctx.Memory.GetStructField(arg, 1)
+			argPtr := visitValue(call.Call.Args[0], state, ctx).(*Pointer)
+			return ctx.Memory.LoadField(argPtr, 1)
 		case "len":
-			arg := visitValue(call.Call.Args[0], state, ctx).(StructPointer)
-			cell := ctx.Memory.Mem[arg.SortPtr].(ArrayWrapperCell)
-			return cell.GetLen(arg.Ptr, ctx)
+			//arg := visitValue(call.Call.Args[0], state, ctx).(StructPointer)
+			//cell := ctx.Memory.Mem[arg.SortPtr].(ArrayWrapperCell)
+			//return cell.GetLen(arg.Ptr, ctx)
 		}
 	}
 
@@ -589,28 +558,17 @@ func visitCall(call *ssa.Call, state *State, ctx *Context) Value {
 }
 
 func visitFieldAddr(casted *ssa.FieldAddr, state *State, ctx *Context) Value {
-	structPtr := visitValue(casted.X, state, ctx)
+	structPtr := visitValue(casted.X, state, ctx).(*Pointer)
 	fieldIdx := casted.Field
-	field := ctx.Memory.GetStructField(structPtr.(StructPointer), fieldIdx)
+	field := ctx.Memory.GetFieldPointer(structPtr, fieldIdx)
 	return field
 }
 
 func visitDereference(casted *ssa.UnOp, state *State, ctx *Context) Value {
-	switch casted.Type().(type) {
+	switch casted.X.Type().(type) {
 	case *types.Pointer:
-		typeName := casted.Type().(*types.Pointer).Elem().(*types.Named).Obj().Name()
-		structSortPtr := ctx.Memory.TypeToSortPtr[typeName]
-		ptr := visitValue(casted.X, state, ctx)
-
-		return StructPointer{
-			context: ctx,
-			SortPtr: structSortPtr,
-			Ptr: ValuePointer{
-				context: ctx,
-				value:   ptr,
-			},
-			structName: typeName,
-		}
+		ptr := visitValue(casted.X, state, ctx).(*Pointer)
+		return ctx.Memory.Load(ptr)
 	default:
 		return visitValue(casted.X, state, ctx)
 	}

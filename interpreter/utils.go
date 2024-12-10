@@ -7,7 +7,7 @@ import (
 )
 
 func (ctx *Context) TypeToSort(t types.Type) z3.Sort {
-	switch casted := t.(type) {
+	switch t.(type) {
 	case *types.Basic:
 		switch t.(*types.Basic).Kind() {
 		case types.Int, types.Int8, types.Int16, types.Int32, types.Int64, types.Byte:
@@ -15,17 +15,6 @@ func (ctx *Context) TypeToSort(t types.Type) z3.Sort {
 		case types.UntypedFloat, types.Float32, types.Float64:
 			return ctx.TypesContext.FloatSort
 		case types.UntypedComplex, types.Complex64, types.Complex128:
-			name := "complex"
-			if _, ok := ctx.Memory.TypeToSortPtr[name]; ok {
-				return ctx.TypesContext.Pointer
-			}
-
-			fields := map[int]types.BasicKind{
-				0: types.Float64,
-				1: types.Float64,
-			}
-
-			ctx.Memory.NewStruct(name, fields)
 			return ctx.TypesContext.Pointer
 		}
 		//case *types.Array:
@@ -35,25 +24,10 @@ func (ctx *Context) TypeToSort(t types.Type) z3.Sort {
 		//	elemType := t.(*types.Slice).Elem()
 		//	return ctx.Z3Context.ArraySort(ctx.TypeToSort(elemType), ctx.TypesContext.IntSort)
 	case *types.Named:
-		name := casted.Obj().Name()
-		if _, ok := ctx.Memory.TypeToSortPtr[name]; ok {
-			return ctx.TypesContext.Pointer
-		}
-
-		structType := casted.Underlying().(*types.Struct)
-
-		fields := make(map[int]types.BasicKind, 0)
-		fieldsCount := structType.NumFields()
-		for i := 0; i < fieldsCount; i++ {
-			field := structType.Field(i)
-			fields[i] = field.Type().(*types.Basic).Kind()
-		}
-
-		ctx.Memory.NewStruct(name, fields)
 		return ctx.TypesContext.Pointer
 	}
 
-	return ctx.TypesContext.UnknownSort
+	panic("can't get sort")
 }
 
 func FloatToString(f z3.Float) string {
@@ -97,4 +71,32 @@ func (ctx *Context) GoToZ3Value(v any) Z3Value {
 	default:
 		panic("unsupported argument")
 	}
+}
+
+func GetStructureFields(s *types.Named) map[int]string {
+	castedStruct := s.Underlying().(*types.Struct)
+	fieldsCount := castedStruct.NumFields()
+	result := make(map[int]string, fieldsCount)
+	for i := 0; i < fieldsCount; i++ {
+		result[i] = GetTypeName(castedStruct.Field(i).Type())
+	}
+
+	return result
+}
+
+func GetTypeName(s types.Type) string {
+	switch castedType := s.(type) {
+	case *types.Named:
+		return castedType.String()
+	case *types.Basic:
+		// todo
+		switch castedType.Kind() {
+		case types.Int, types.Int8, types.Int16, types.Int32, types.Int64:
+			return "int"
+		case types.Float64, types.Float32:
+			return "float"
+		}
+	}
+
+	panic("can't get type")
 }

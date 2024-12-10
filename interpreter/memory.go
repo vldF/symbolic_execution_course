@@ -1,349 +1,236 @@
 package interpreter
 
-import (
-	"github.com/aclements/go-z3/z3"
-	"go/types"
-	"math"
-)
+import "github.com/aclements/go-z3/z3"
 
-var intPtr = sortPointer{
-	ConcreteIntValue{
-		Context: nil,
-		Value:   math.MaxInt64 - 1,
-	},
-}
-var floatPtr = sortPointer{
-	ConcreteIntValue{
-		Context: nil,
-		Value:   math.MaxInt64 - 2,
-	},
-}
-
-var basePtrCounter int64 = 0
-var baseSortPtrCounter int64 = 100000000
+type sortPtr string // type name is unique in the system
 
 type Memory struct {
-	context       *Context
-	Mem           map[sortPointer]interface{}
-	TypeToSortPtr map[string]sortPointer
+	ctx         *Context
+	memoryLines map[sortPtr]z3.Array
+	structures  map[sortPtr]*StructureDescriptor
 }
 
-func (memory *Memory) AllocateInt() ValuePointer {
-	return memory.getNextPtr()
+type Pointer struct {
+	ctx  *Context
+	ptr  Value
+	sPtr sortPtr
 }
 
-func (memory *Memory) AllocateFloat() ValuePointer {
-	return memory.getNextPtr()
+type StructureDescriptor struct {
+	fields map[int]sortPtr
 }
 
-func (memory *Memory) AllocateStruct() ValuePointer {
-	return memory.getNextPtr()
+var basePtrs = make(map[sortPtr]int64)
+
+func getNextPtr(sortPtr sortPtr) int64 {
+	if _, ok := basePtrs[sortPtr]; !ok {
+		basePtrs[sortPtr] = 1 // we start from 1 because 0 represents nil
+	}
+
+	return basePtrs[sortPtr]
 }
 
-func (memory *Memory) NewArray(elementName string, elements types.Type) {
-	z3Context := memory.context.Z3Context
+func (ptr *Pointer) IsNil() BoolValue {
+	zeroIntConst := ConcreteIntValue{
+		ptr.ctx,
+		int64(0),
+	}
 
-	basePtrCounter++
-	newSortPtr := sortPointer{
-		ConcreteIntValue{
-			memory.context,
-			basePtrCounter,
+	return ptr.ptr.Eq(&zeroIntConst)
+}
+
+func (mem *Memory) NewPtr(typeName string) *Pointer {
+	intPtr := getNextPtr(sortPtr(typeName))
+	newPtr := &Pointer{
+		ctx: mem.ctx,
+		ptr: &ConcreteIntValue{
+			mem.ctx,
+			intPtr,
 		},
-	}
-	memory.TypeToSortPtr[elementName+"-array-wrapper"] = newSortPtr
-
-	basePtrCounter++
-	lenSortPtr := sortPointer{
-		ConcreteIntValue{
-			memory.context,
-			basePtrCounter,
-		},
-	}
-	intArrSort := z3Context.ArraySort(memory.context.TypesContext.IntSort, memory.context.TypesContext.IntSort)
-	memory.Mem[lenSortPtr] = &PrimitiveValueCell{
-		z3Context.FreshConst(elementName+"-array-wrapper-len", intArrSort).(z3.Array),
+		sPtr: sortPtr(typeName),
 	}
 
-	basePtrCounter++
-	elementSortPtr := sortPointer{
-		ConcreteIntValue{
-			memory.context,
-			basePtrCounter,
-		},
-	}
-
-	switch castedElements := elements.(type) {
-	case *types.Pointer:
-		switch castedCastedElements := castedElements.Elem().(type) {
-		case *types.Named:
-			struc := castedCastedElements.Underlying().(*types.Struct)
-			fields := make(map[int]types.BasicKind)
-			fieldsCount := struc.NumFields()
-
-			for i := 0; i < fieldsCount; i++ {
-				fields[i] = struc.Field(i).Type().(*types.Basic).Kind()
-			}
-
-			name := castedCastedElements.Obj().Name()
-			memory.NewStruct(name, fields)
-
-			intArrSort := z3Context.ArraySort(memory.context.TypesContext.IntSort, memory.context.TypesContext.IntSort)
-			arrayOfIntArrSort := z3Context.ArraySort(memory.context.TypesContext.IntSort, intArrSort)
-			memory.Mem[elementSortPtr] = &PrimitiveValueCell{
-				z3Context.FreshConst(elementName+"-ints", arrayOfIntArrSort).(z3.Array),
-			}
-		}
-	case *types.Basic:
-		switch castedElements.Kind() {
-		case types.Int, types.Int8, types.Int16, types.Int32, types.Int64:
-			intArrSort := z3Context.ArraySort(memory.context.TypesContext.IntSort, memory.context.TypesContext.IntSort)
-			arrayOfIntArrSort := z3Context.ArraySort(memory.context.TypesContext.IntSort, intArrSort)
-			memory.Mem[elementSortPtr] = &PrimitiveValueCell{
-				z3Context.FreshConst(elementName+"-ints", arrayOfIntArrSort).(z3.Array),
-			}
-		case types.Float32, types.Float64, types.UntypedFloat:
-			intArrSort := z3Context.ArraySort(memory.context.TypesContext.IntSort, memory.context.TypesContext.IntSort)
-			arrayOfIntArrSort := z3Context.ArraySort(memory.context.TypesContext.IntSort, intArrSort)
-			memory.Mem[elementSortPtr] = &PrimitiveValueCell{
-				z3Context.FreshConst(elementName+"-ints", arrayOfIntArrSort).(z3.Array),
-			}
-		}
-	}
-
-	memory.Mem[newSortPtr] = ArrayWrapperCell{
-		memory:   memory,
-		Lens:     lenSortPtr,
-		Elements: elementSortPtr,
-	}
-
+	return newPtr
 }
 
-func (memory *Memory) NewStruct(name string, fields map[int]types.BasicKind) {
-	basePtrCounter++
-	newSortPtr := sortPointer{
-		ConcreteIntValue{
-			memory.context,
-			basePtrCounter,
+func (mem *Memory) NullPtr(typeName string) *Pointer {
+	newPtr := &Pointer{
+		ctx: mem.ctx,
+		ptr: &ConcreteIntValue{
+			mem.ctx,
+			0,
 		},
+		sPtr: sortPtr(typeName),
 	}
-	memory.TypeToSortPtr[name] = newSortPtr
 
-	fieldsInCell := make(map[int]sortPointer)
+	return newPtr
+}
 
-	for fieldName, fieldType := range fields {
-		baseSortPtrCounter++
-		fieldsPtr := sortPointer{
-			ConcreteIntValue{
-				Context: memory.context,
-				Value:   baseSortPtrCounter,
-			},
+func (mem *Memory) Store(ptr *Pointer, value Value) {
+	sPtr := ptr.sPtr
+	if _, ok := mem.memoryLines[sPtr]; !ok {
+		var arrSort z3.Sort
+
+		switch string(sPtr) {
+		case "int":
+			arrSort = mem.ctx.Z3Context.ArraySort(mem.ctx.TypesContext.Pointer, mem.ctx.TypesContext.IntSort)
+		case "float":
+			arrSort = mem.ctx.Z3Context.ArraySort(mem.ctx.TypesContext.Pointer, mem.ctx.TypesContext.FloatSort)
 		}
 
-		z3Context := memory.context.Z3Context
-		typesContext := memory.context.TypesContext
-		switch fieldType {
-		case types.Int8, types.Int16, types.Int32, types.Int64, types.Int, types.Uint8, types.Uint16, types.Uint32, types.Uint64:
-			intArrSort := z3Context.ArraySort(typesContext.IntSort, typesContext.IntSort)
-			memory.Mem[fieldsPtr] = &PrimitiveValueCell{z3Context.FreshConst(name+"-ints", intArrSort).(z3.Array)}
-		case types.Float32, types.Float64:
-			floatArrSort := z3Context.ArraySort(typesContext.IntSort, typesContext.FloatSort)
-			memory.Mem[fieldsPtr] = &PrimitiveValueCell{z3Context.FreshConst(name+"-floats", floatArrSort).(z3.Array)}
-		case types.String:
-			// do nothing
+		mem.memoryLines[sPtr] = mem.ctx.Z3Context.FreshConst(string(sPtr)+"-line", arrSort).(z3.Array)
+	}
+
+	line := mem.memoryLines[sPtr]
+	mem.memoryLines[sPtr] = line.Store(ptr.ptr.AsZ3Value().Value, value.AsZ3Value().Value)
+}
+
+func (mem *Memory) Load(ptr *Pointer) Value {
+	sPtr := ptr.sPtr
+	context := mem.ctx
+	if _, ok := mem.memoryLines[sPtr]; !ok {
+		panic("no memory line for the pointer")
+	}
+
+	line := mem.memoryLines[sPtr]
+	z3Value := line.Select(ptr.ptr.AsZ3Value().Value)
+
+	return &Z3Value{
+		Context: context,
+		Value:   z3Value,
+	}
+}
+
+func (mem *Memory) NewStruct(name string, fields map[int]string) {
+	structSortPtr := sortPtr(name)
+	if _, ok := mem.structures[structSortPtr]; ok {
+		panic("struct already exists " + structSortPtr)
+	}
+
+	fieldsInDescriptor := make(map[int]sortPtr)
+	for fieldName, fieldTypeName := range fields {
+		fieldsInDescriptor[fieldName] = sortPtr(fieldTypeName)
+	}
+
+	structDescriptor := &StructureDescriptor{
+		fields: fieldsInDescriptor,
+	}
+
+	mem.structures[structSortPtr] = structDescriptor
+}
+
+func (mem *Memory) StoreField(structPtr *Pointer, fieldIdx int, value Value) {
+	sPtr := structPtr.sPtr
+	structDescr := mem.structures[sPtr]
+	if _, ok := structDescr.fields[fieldIdx]; !ok {
+		var fieldSortPtr sortPtr
+		switch castedValue := value.(type) {
+		case *ConcreteIntValue:
+			fieldSortPtr = "int"
+		case *ConcreteFloatValue:
+			fieldSortPtr = "float"
+		case *ConcreteBoolValue:
+			fieldSortPtr = "bool"
+		case *Z3Value:
+			switch {
+			case castedValue.IsFloat():
+				fieldSortPtr = "float"
+			case castedValue.IsInteger():
+				fieldSortPtr = "int"
+			case castedValue.IsBool():
+				fieldSortPtr = "bool"
+			default:
+				panic("unsupported value type")
+			}
 		default:
-			panic("unsupported type")
+			panic("unsupported value type")
 		}
 
-		fieldsInCell[fieldName] = fieldsPtr
+		structDescr.fields[fieldIdx] = fieldSortPtr
 	}
 
-	memory.Mem[newSortPtr] = StructValueCell{ // todo: may be &?
-		memory: memory,
-		Fields: fieldsInCell,
+	line := mem.memoryLines[structDescr.fields[fieldIdx]]
+	mem.memoryLines[sPtr] = line.Store(structPtr.ptr.AsZ3Value().Value, value.AsZ3Value().Value)
+}
+
+func (mem *Memory) LoadField(structPtr *Pointer, fieldIdx int) Value {
+	sPtr := structPtr.sPtr
+	if _, ok := mem.structures[sPtr]; !ok {
+		panic("unknown structure " + sPtr)
 	}
-}
 
-func (memory *Memory) getNextPtr() ValuePointer {
-	basePtrCounter++
-
-	return ValuePointer{
-		memory.context,
-		&ConcreteIntValue{
-			memory.context,
-			basePtrCounter,
-		},
+	structDescr := mem.structures[sPtr]
+	if _, ok := structDescr.fields[fieldIdx]; !ok {
+		panic("unknown field " + string(rune(fieldIdx)))
 	}
-}
 
-func (memory *Memory) GetIntValue(pointer ValuePointer) Value {
-	cell := memory.Mem[intPtr].(PrimitiveValueCell)
+	fieldSortPtr := structDescr.fields[fieldIdx]
+	line := mem.memoryLines[fieldSortPtr]
 
-	return cell.getValue(pointer, memory.context)
-}
-
-func (memory *Memory) GetFloatValue(pointer ValuePointer) Value {
-	cell := memory.Mem[floatPtr].(PrimitiveValueCell)
-
-	return cell.getValue(pointer, memory.context)
-}
-
-func (memory *Memory) GetStructField(structPtr StructPointer, fieldIdx int) Value {
-	structure := memory.Mem[structPtr.SortPtr].(StructValueCell)
-	fieldsPtr := structure.Fields[fieldIdx]
-	fields := memory.Mem[fieldsPtr]
-	valueCell := fields.(*PrimitiveValueCell)
-
-	return valueCell.getValue(structPtr.Ptr, memory.context)
-}
-
-type sortPointer struct {
-	Value ConcreteIntValue
-}
-
-type ValuePointer struct {
-	context *Context
-	value   Value
-}
-
-type StructPointer struct {
-	context    *Context
-	SortPtr    sortPointer
-	Ptr        ValuePointer
-	structName string
-}
-
-func (s StructPointer) AsZ3Value() Z3Value {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (s StructPointer) Eq(value Value) BoolValue {
-	switch castedValue := value.(type) {
-	case StructPointer:
-		return &Z3Value{
-			s.context,
-			s.Ptr.AsZ3Value().Value.(z3.BV).Eq(castedValue.Ptr.AsZ3Value().Value.(z3.BV)).
-				And(s.SortPtr.Value.AsZ3Value().Value.(z3.BV).Eq(s.SortPtr.Value.AsZ3Value().Value.(z3.BV))),
-		}
-	default:
-		panic("unsupported type")
-	}
-}
-
-func (s StructPointer) NotEq(value Value) BoolValue {
-	return s.Eq(value).Not()
-}
-
-func (s StructPointer) IsFloat() bool {
-	return false
-}
-
-func (s StructPointer) IsInteger() bool {
-	return false
-}
-
-func (s StructPointer) IsBool() bool {
-	return false
-}
-
-func (s StructPointer) And(value Value) Value {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (s StructPointer) Or(value Value) Value {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (s StructPointer) Xor(value Value) Value {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (v ValuePointer) AsZ3Value() Z3Value {
-	return v.value.AsZ3Value()
-}
-
-func (v ValuePointer) Eq(value Value) BoolValue {
-	switch castedValue := value.(type) {
-	case ValuePointer:
-		return &Z3Value{
-			v.context,
-			v.value.AsZ3Value().Value.(z3.BV).Eq(castedValue.value.AsZ3Value().Value.(z3.BV)),
-		}
-	default:
-		panic("unsupported type")
-	}
-}
-
-func (v ValuePointer) NotEq(value Value) BoolValue {
-	return v.Eq(value).Not()
-}
-
-func (v ValuePointer) IsFloat() bool {
-	return false
-}
-
-func (v ValuePointer) IsInteger() bool {
-	return false
-}
-
-func (v ValuePointer) IsBool() bool {
-	return false
-}
-
-func (v ValuePointer) And(value Value) Value {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (v ValuePointer) Or(value Value) Value {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (v ValuePointer) Xor(value Value) Value {
-	//TODO implement me
-	panic("implement me")
-}
-
-type PrimitiveValueCell struct {
-	Z3Arr z3.Array
-}
-
-func (cell *PrimitiveValueCell) getValue(index ValuePointer, context *Context) Value {
-	return &Z3Value{
-		Context: context,
-		Value:   cell.Z3Arr.Select(index.value.AsZ3Value().Value),
-	}
-}
-
-type StructValueCell struct {
-	memory *Memory
-	Fields map[int]sortPointer
-}
-
-type ArrayWrapperCell struct {
-	memory   *Memory
-	Lens     sortPointer
-	Elements sortPointer
-}
-
-func (cell *ArrayWrapperCell) GetValue(index ValuePointer, context *Context) Value {
-	z3Val := cell.memory.Mem[cell.Elements].(*PrimitiveValueCell).Z3Arr.Select(index.value.AsZ3Value().Value.(z3.BV))
+	z3Value := line.Select(structPtr.ptr.AsZ3Value().Value)
 
 	return &Z3Value{
-		Context: context,
-		Value:   z3Val,
+		Context: mem.ctx,
+		Value:   z3Value,
 	}
 }
 
-func (cell *ArrayWrapperCell) GetLen(index ValuePointer, context *Context) Value {
-	z3Val := cell.memory.Mem[cell.Lens].(*PrimitiveValueCell).Z3Arr.Select(index.value.AsZ3Value().Value.(z3.BV))
+func (ptr *Pointer) AsZ3Value() Z3Value {
+	//TODO implement me
+	panic("implement me")
+}
 
-	return &Z3Value{
-		Context: context,
-		Value:   z3Val,
+func (ptr *Pointer) Eq(value Value) BoolValue {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (ptr *Pointer) NotEq(value Value) BoolValue {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (ptr *Pointer) IsFloat() bool {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (ptr *Pointer) IsInteger() bool {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (ptr *Pointer) IsBool() bool {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (ptr *Pointer) And(value Value) Value {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (ptr *Pointer) Or(value Value) Value {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (ptr *Pointer) Xor(value Value) Value {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (mem *Memory) GetFieldPointer(structPtr *Pointer, fieldIdx int) Value {
+	if _, ok := mem.structures[structPtr.sPtr]; !ok {
+		panic("unknown structure " + structPtr.sPtr)
+	}
+
+	structDescr := mem.structures[structPtr.sPtr]
+	fieldSortPtr := structDescr.fields[fieldIdx]
+
+	return &Pointer{
+		ctx:  mem.ctx,
+		ptr:  structPtr.ptr,
+		sPtr: fieldSortPtr,
 	}
 }

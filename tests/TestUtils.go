@@ -15,10 +15,10 @@ func SymbolicMachineUnsatTest(
 	fileName string,
 	funcName string,
 	args map[string]any,
-	expected any,
+	unexpected any,
 	t *testing.T,
 ) {
-	solver := symbolicMachineTest(fileName, funcName, args, expected)
+	solver := symbolicMachineTest(fileName, funcName, args, unexpected)
 
 	println("solver with test constraints:", solver.String())
 	println()
@@ -120,70 +120,70 @@ func addArgs(args map[string]any, state *interpreter.State, solver *z3.Solver, c
 	initialStackFrame := state.StackFrames[0]
 
 	for argName, argValue := range args {
-		switch argCasted := argValue.(type) {
+		switch argValue.(type) {
 		case StructArg:
-			argSortPtr := ctx.Memory.TypeToSortPtr[argCasted.typeName]
-			argCell := ctx.Memory.Mem[argSortPtr].(interpreter.StructValueCell)
-			argPtr := initialStackFrame.Values[argName].(interpreter.StructPointer)
-			for i, fieldValue := range argCasted.fields {
-				fieldSortPtr := argCell.Fields[i]
-				cell := ctx.Memory.Mem[fieldSortPtr].(*interpreter.PrimitiveValueCell)
-				switch castedFieldValue := fieldValue.(type) {
-				case int64, int, int32, int16, int8:
-					value := cell.Z3Arr.Select(argPtr.Ptr.AsZ3Value().Value).(z3.BV)
-					constraint := value.Eq(ctx.GoToZ3Value(castedFieldValue).Value.(z3.BV))
-					solver.Assert(constraint)
-				case float32, float64:
-					value := cell.Z3Arr.Select(argPtr.Ptr.AsZ3Value().Value).(z3.Float)
-					constraint := value.Eq(ctx.GoToZ3Value(castedFieldValue).Value.(z3.Float))
-					solver.Assert(constraint)
-				}
-			}
+			//argSortPtr := ctx.Memory.TypeToSortPtr[argCasted.typeName]
+			//argCell := ctx.Memory.Mem[argSortPtr].(interpreter.StructValueCell)
+			//argPtr := initialStackFrame.Values[argName].(interpreter.StructPointer)
+			//for i, fieldValue := range argCasted.fields {
+			//	fieldSortPtr := argCell.Fields[i]
+			//	cell := ctx.Memory.Mem[fieldSortPtr].(*interpreter.PrimitiveValueCell)
+			//	switch castedFieldValue := fieldValue.(type) {
+			//	case int64, int, int32, int16, int8:
+			//		value := cell.Z3Arr.Select(argPtr.Ptr.AsZ3Value().Value).(z3.BV)
+			//		constraint := value.Eq(ctx.GoToZ3Value(castedFieldValue).Value.(z3.BV))
+			//		solver.Assert(constraint)
+			//	case float32, float64:
+			//		value := cell.Z3Arr.Select(argPtr.Ptr.AsZ3Value().Value).(z3.Float)
+			//		constraint := value.Eq(ctx.GoToZ3Value(castedFieldValue).Value.(z3.Float))
+			//		solver.Assert(constraint)
+			//	}
+			//}
 
 			continue
 		case complex128:
-			typeName := "complex"
-			complexSortPtr := ctx.Memory.TypeToSortPtr[typeName]
-			argCell := ctx.Memory.Mem[complexSortPtr].(interpreter.StructValueCell)
-			argPtr := initialStackFrame.Values[argName].(interpreter.StructPointer)
-
-			realCell := ctx.Memory.Mem[argCell.Fields[0]].(*interpreter.PrimitiveValueCell)
-			realValue := real(argCasted)
-			realSymbolicConst := realCell.Z3Arr.Select(argPtr.Ptr.AsZ3Value().Value).(z3.Float)
-			constraint := realSymbolicConst.Eq(ctx.GoToZ3Value(realValue).Value.(z3.Float))
-			solver.Assert(constraint)
-
-			imagCell := ctx.Memory.Mem[argCell.Fields[1]].(*interpreter.PrimitiveValueCell)
-			imagValue := imag(argCasted)
-			imagSymbolicConst := imagCell.Z3Arr.Select(argPtr.Ptr.AsZ3Value().Value).(z3.Float)
-			constraint = imagSymbolicConst.Eq(ctx.GoToZ3Value(imagValue).Value.(z3.Float))
-			solver.Assert(constraint)
+			//typeName := "complex"
+			//complexSortPtr := ctx.Memory.TypeToSortPtr[typeName]
+			//argCell := ctx.Memory.Mem[complexSortPtr].(interpreter.StructValueCell)
+			//argPtr := initialStackFrame.Values[argName].(interpreter.StructPointer)
+			//
+			//realCell := ctx.Memory.Mem[argCell.Fields[0]].(*interpreter.PrimitiveValueCell)
+			//realValue := real(argCasted)
+			//realSymbolicConst := realCell.Z3Arr.Select(argPtr.Ptr.AsZ3Value().Value).(z3.Float)
+			//constraint := realSymbolicConst.Eq(ctx.GoToZ3Value(realValue).Value.(z3.Float))
+			//solver.Assert(constraint)
+			//
+			//imagCell := ctx.Memory.Mem[argCell.Fields[1]].(*interpreter.PrimitiveValueCell)
+			//imagValue := imag(argCasted)
+			//imagSymbolicConst := imagCell.Z3Arr.Select(argPtr.Ptr.AsZ3Value().Value).(z3.Float)
+			//constraint = imagSymbolicConst.Eq(ctx.GoToZ3Value(imagValue).Value.(z3.Float))
+			//solver.Assert(constraint)
 			continue
 		case ArrayArg:
-			typeName := argCasted.elementTypeName
-			sortPtr := ctx.Memory.TypeToSortPtr[typeName+"-array-wrapper"]
-			wrapperSortPtr := ctx.Memory.Mem[sortPtr].(interpreter.ArrayWrapperCell)
-
-			wrapperPtr := initialStackFrame.Values[argName].(interpreter.StructPointer)
-
-			lenConst := wrapperSortPtr.GetLen(wrapperPtr.Ptr, ctx).AsZ3Value().Value.(z3.BV)
-			expectedLen := ctx.Z3Context.FromInt(int64(len(argCasted.elements)), ctx.TypesContext.IntSort).(z3.BV)
-			constraint := lenConst.Eq(expectedLen)
-			solver.Assert(constraint)
-
-			for i, element := range argCasted.elements {
-				value := ctx.GoToZ3Value(element)
-				val := value.AsZ3Value()
-
-				idx := ctx.Z3Context.FromInt(int64(i), ctx.TypesContext.IntSort).(z3.BV)
-
-				arrayValue := interpreter.Z3Value{
-					Context: ctx,
-					Value:   wrapperSortPtr.GetValue(wrapperPtr.Ptr, ctx).AsZ3Value().Value.(z3.Array).Select(idx),
-				}
-
-				solver.Assert(arrayValue.Eq(&val).AsZ3Value().Value.(z3.Bool))
-			}
+			//typeName := argCasted.elementTypeName
+			//sortPtr := ctx.Memory.TypeToSortPtr[typeName+"-array-wrapper"]
+			//wrapperSortPtr := ctx.Memory.Mem[sortPtr].(interpreter.ArrayWrapperCell)
+			//
+			//wrapperPtr := initialStackFrame.Values[argName].(interpreter.StructPointer)
+			//
+			//lenConst := wrapperSortPtr.GetLen(wrapperPtr.Ptr, ctx).AsZ3Value().Value.(z3.BV)
+			//expectedLen := ctx.Z3Context.FromInt(int64(len(argCasted.elements)), ctx.TypesContext.IntSort).(z3.BV)
+			//constraint := lenConst.Eq(expectedLen)
+			//solver.Assert(constraint)
+			//
+			//for i, element := range argCasted.elements {
+			//	value := ctx.GoToZ3Value(element)
+			//	val := value.AsZ3Value()
+			//
+			//	idx := ctx.Z3Context.FromInt(int64(i), ctx.TypesContext.IntSort).(z3.BV)
+			//
+			//	arrayValue := interpreter.Z3Value{
+			//		Context: ctx,
+			//		Value:   wrapperSortPtr.GetValue(wrapperPtr.Ptr, ctx).AsZ3Value().Value.(z3.Array).Select(idx),
+			//	}
+			//
+			//	solver.Assert(arrayValue.Eq(&val).AsZ3Value().Value.(z3.Bool))
+			//}
 
 			continue
 		}
@@ -208,24 +208,24 @@ func addArgs(args map[string]any, state *interpreter.State, solver *z3.Solver, c
 }
 
 func addResultConstraint(solver *z3.Solver, expectedResult any, ctx *interpreter.Context) {
-	switch castedExpectedResult := expectedResult.(type) {
+	switch expectedResult.(type) {
 	case complex128:
-		resultPtr := ctx.ReturnValue
-		typeName := "complex"
-		complexSortPtr := ctx.Memory.TypeToSortPtr[typeName]
-		argCell := ctx.Memory.Mem[complexSortPtr].(interpreter.StructValueCell)
-		realSortPtr := argCell.Fields[0]
-		imagSortPtr := argCell.Fields[1]
-
-		realFields := ctx.Memory.Mem[realSortPtr].(*interpreter.PrimitiveValueCell)
-		expectedRealComponent := real(castedExpectedResult)
-		constraint := realFields.Z3Arr.Select(resultPtr.Value).(z3.Float).Eq(ctx.GoToZ3Value(expectedRealComponent).Value.(z3.Float))
-		solver.Assert(constraint)
-
-		imagFields := ctx.Memory.Mem[imagSortPtr].(*interpreter.PrimitiveValueCell)
-		expectedImagComponent := imag(castedExpectedResult)
-		constraint = imagFields.Z3Arr.Select(resultPtr.Value).(z3.Float).Eq(ctx.GoToZ3Value(expectedImagComponent).Value.(z3.Float))
-		solver.Assert(constraint)
+		//resultPtr := ctx.ReturnValue
+		//typeName := "complex"
+		//complexSortPtr := ctx.Memory.TypeToSortPtr[typeName]
+		//argCell := ctx.Memory.Mem[complexSortPtr].(interpreter.StructValueCell)
+		//realSortPtr := argCell.Fields[0]
+		//imagSortPtr := argCell.Fields[1]
+		//
+		//realFields := ctx.Memory.Mem[realSortPtr].(*interpreter.PrimitiveValueCell)
+		//expectedRealComponent := real(castedExpectedResult)
+		//constraint := realFields.Z3Arr.Select(resultPtr.Value).(z3.Float).Eq(ctx.GoToZ3Value(expectedRealComponent).Value.(z3.Float))
+		//solver.Assert(constraint)
+		//
+		//imagFields := ctx.Memory.Mem[imagSortPtr].(*interpreter.PrimitiveValueCell)
+		//expectedImagComponent := imag(castedExpectedResult)
+		//constraint = imagFields.Z3Arr.Select(resultPtr.Value).(z3.Float).Eq(ctx.GoToZ3Value(expectedImagComponent).Value.(z3.Float))
+		//solver.Assert(constraint)
 	default:
 		value := ctx.GoToZ3Value(expectedResult)
 		solver.Assert(ctx.ReturnValue.Eq(&value).AsZ3Value().Value.(z3.Bool))

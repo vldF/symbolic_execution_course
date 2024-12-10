@@ -1,0 +1,74 @@
+# Name: analyzee.ArrayAllocateStoreRead
+# Package: analyzee
+# Location: analyzee.go:3:6
+func ArrayAllocateStoreRead(a int) int:
+0:                                                                entry P:0 S:0
+	t0 = new [3]int (makeslice)                                     *[3]int
+	t1 = slice t0[:3:int]                                             []int
+	t2 = &t1[0:int]                                                    *int
+	*t2 = a
+	t3 = &t1[0:int]                                                    *int
+	t4 = *t3                                                            int
+	return t4
+
+# Name: analyzee.ArrayAllocateStoreReadDynamic
+# Package: analyzee
+# Location: analyzee.go:9:6
+func ArrayAllocateStoreReadDynamic(a int, idx int) int:
+0:                                                                entry P:0 S:0
+	t0 = idx + 1:int                                                    int
+	t1 = make []int t0 t0                                             []int
+	t2 = &t1[idx]                                                      *int
+	*t2 = a
+	t3 = &t1[idx]                                                      *int
+	t4 = *t3                                                            int
+	return t4
+
+# Name: analyzee.ArrayAllocateStoreReadStore
+# Package: analyzee
+# Location: analyzee.go:15:6
+func ArrayAllocateStoreReadStore() int:
+0:                                                                entry P:0 S:1
+	t0 = new [5]int (makeslice)                                     *[5]int
+	t1 = slice t0[:5:int]                                             []int
+	jump 1
+1:                                                             for.loop P:2 S:2
+	t2 = phi [0: 0:int, 2: t5] #i                                       int
+	t3 = t2 < 5:int                                                    bool
+	if t3 goto 2 else 3
+2:                                                             for.body P:1 S:1
+	t4 = &t1[t2]                                                       *int
+	*t4 = 0:int
+	t5 = t2 + 1:int                                                     int
+	jump 1
+3:                                                             for.done P:1 S:2
+	t6 = &t1[2:int]                                                    *int
+	*t6 = 1:int
+	t7 = &t1[2:int]                                                    *int
+	t8 = *t7                                                            int
+	t9 = t8 == 1:int                                                   bool
+	if t9 goto 4 else 5
+4:                                                              if.then P:1 S:1
+	t10 = &t1[2:int]                                                   *int
+	*t10 = 2:int
+	jump 5
+5:                                                              if.done P:2 S:2
+	t11 = &t1[2:int]                                                   *int
+	t12 = *t11                                                          int
+	t13 = t12 == 3:int                                                 bool
+	if t13 goto 6 else 7
+6:                                                              if.then P:1 S:0
+	return -1:int
+7:                                                              if.done P:1 S:2
+	t14 = &t1[2:int]                                                   *int
+	t15 = *t14                                                          int
+	t16 = t15 == 2:int                                                 bool
+	if t16 goto 8 else 9
+8:                                                              if.then P:1 S:1
+	t17 = &t1[2:int]                                                   *int
+	*t17 = 3:int
+	jump 9
+9:                                                              if.done P:2 S:0
+	t18 = &t1[2:int]                                                   *int
+	t19 = *t18                                                          int
+	return t19
