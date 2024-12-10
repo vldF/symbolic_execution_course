@@ -178,50 +178,6 @@ func (mem *Memory) LoadField(structPtr *Pointer, fieldIdx int) Value {
 	}
 }
 
-func (ptr *Pointer) AsZ3Value() Z3Value {
-	return ptr.ptr.AsZ3Value()
-}
-
-func (ptr *Pointer) Eq(value Value) BoolValue {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (ptr *Pointer) NotEq(value Value) BoolValue {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (ptr *Pointer) IsFloat() bool {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (ptr *Pointer) IsInteger() bool {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (ptr *Pointer) IsBool() bool {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (ptr *Pointer) And(value Value) Value {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (ptr *Pointer) Or(value Value) Value {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (ptr *Pointer) Xor(value Value) Value {
-	//TODO implement me
-	panic("implement me")
-}
-
 func (mem *Memory) GetUnsafePointerToField(ptr Value, fieldIdx int, structName string) *Pointer {
 	fieldSort := sortPtr(structName)
 	if descr, ok := mem.structures[fieldSort]; ok {
@@ -248,4 +204,55 @@ func (mem *Memory) GetFieldPointer(structPtr *Pointer, fieldIdx int) Value {
 		ptr:  structPtr.ptr,
 		sPtr: fieldSortPtr,
 	}
+}
+
+func (ptr *Pointer) AsZ3Value() Z3Value {
+	return ptr.ptr.AsZ3Value()
+}
+
+func (ptr *Pointer) Eq(value Value) BoolValue {
+	switch value := value.(type) {
+	case *Pointer:
+		if ptr.sPtr != value.sPtr {
+			return &ConcreteBoolValue{
+				ptr.ctx,
+				false,
+			}
+		}
+
+		return ptr.ptr.Eq(value.ptr)
+	}
+
+	return &ConcreteBoolValue{
+		ptr.ctx,
+		false,
+	}
+}
+
+func (ptr *Pointer) NotEq(value Value) BoolValue {
+	return ptr.Eq(value).Not()
+}
+
+func (ptr *Pointer) IsFloat() bool {
+	return false
+}
+
+func (ptr *Pointer) IsInteger() bool {
+	return false
+}
+
+func (ptr *Pointer) IsBool() bool {
+	return false
+}
+
+func (ptr *Pointer) And(Value) Value {
+	panic("unsupported")
+}
+
+func (ptr *Pointer) Or(Value) Value {
+	panic("unsupported")
+}
+
+func (ptr *Pointer) Xor(Value) Value {
+	panic("unsupported")
 }
