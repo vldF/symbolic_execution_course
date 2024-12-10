@@ -558,10 +558,17 @@ func visitCall(call *ssa.Call, state *State, ctx *Context) Value {
 }
 
 func visitFieldAddr(casted *ssa.FieldAddr, state *State, ctx *Context) Value {
-	structPtr := visitValue(casted.X, state, ctx).(*Pointer)
+	value := visitValue(casted.X, state, ctx)
 	fieldIdx := casted.Field
-	field := ctx.Memory.GetFieldPointer(structPtr, fieldIdx)
-	return field
+
+	switch castedValue := value.(type) {
+	case *Pointer:
+		field := ctx.Memory.GetFieldPointer(castedValue, fieldIdx)
+		return field
+	default:
+		typeName := casted.X.Type().(*types.Pointer).Elem().(*types.Named).Obj().Name()
+		return ctx.Memory.GetUnsafePointerToField(value, fieldIdx, typeName)
+	}
 }
 
 func visitDereference(casted *ssa.UnOp, state *State, ctx *Context) Value {

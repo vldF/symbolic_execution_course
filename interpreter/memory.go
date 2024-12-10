@@ -76,6 +76,9 @@ func (mem *Memory) Store(ptr *Pointer, value Value) {
 			arrSort = mem.ctx.Z3Context.ArraySort(mem.ctx.TypesContext.Pointer, mem.ctx.TypesContext.IntSort)
 		case "float":
 			arrSort = mem.ctx.Z3Context.ArraySort(mem.ctx.TypesContext.Pointer, mem.ctx.TypesContext.FloatSort)
+		default:
+			// non default type
+			arrSort = mem.ctx.Z3Context.ArraySort(mem.ctx.TypesContext.Pointer, mem.ctx.TypesContext.Pointer)
 		}
 
 		mem.memoryLines[sPtr] = mem.ctx.Z3Context.FreshConst(string(sPtr)+"-line", arrSort).(z3.Array)
@@ -104,7 +107,7 @@ func (mem *Memory) Load(ptr *Pointer) Value {
 func (mem *Memory) NewStruct(name string, fields map[int]string) {
 	structSortPtr := sortPtr(name)
 	if _, ok := mem.structures[structSortPtr]; ok {
-		panic("struct already exists " + structSortPtr)
+		return
 	}
 
 	fieldsInDescriptor := make(map[int]sortPtr)
@@ -176,8 +179,7 @@ func (mem *Memory) LoadField(structPtr *Pointer, fieldIdx int) Value {
 }
 
 func (ptr *Pointer) AsZ3Value() Z3Value {
-	//TODO implement me
-	panic("implement me")
+	return ptr.ptr.AsZ3Value()
 }
 
 func (ptr *Pointer) Eq(value Value) BoolValue {
@@ -218,6 +220,19 @@ func (ptr *Pointer) Or(value Value) Value {
 func (ptr *Pointer) Xor(value Value) Value {
 	//TODO implement me
 	panic("implement me")
+}
+
+func (mem *Memory) GetUnsafePointerToField(ptr Value, fieldIdx int, structName string) *Pointer {
+	fieldSort := sortPtr(structName)
+	if descr, ok := mem.structures[fieldSort]; ok {
+		return &Pointer{
+			ctx:  mem.ctx,
+			ptr:  ptr,
+			sPtr: descr.fields[fieldIdx],
+		}
+	}
+
+	panic("unknown structure " + structName)
 }
 
 func (mem *Memory) GetFieldPointer(structPtr *Pointer, fieldIdx int) Value {

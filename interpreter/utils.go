@@ -96,7 +96,9 @@ func GetTypeName(s types.Type) string {
 		case types.Float64, types.Float32:
 			return "float"
 		}
+	case *types.Pointer:
+		return GetTypeName(castedType.Elem())
 	}
 
-	panic("can't get type")
+	panic("can't get type " + s.String())
 }

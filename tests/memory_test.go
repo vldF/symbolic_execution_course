@@ -20,6 +20,21 @@ func TestStructAllocateStoreRead(t *testing.T) {
 	}
 }
 
+func TestStructOfStructAllocateStoreRead(t *testing.T) {
+	aVariants := []int{0, 1, 2, 5, 10}
+
+	for _, variant := range aVariants {
+		args := make(map[string]any)
+		args["a"] = variant
+
+		expected := testdata.StructOfStructAllocateStoreRead(variant)
+
+		SymbolicMachineSatTest("memory", "StructOfStructAllocateStoreRead", args, expected, t)
+		SymbolicMachineUnsatTest("memory", "StructOfStructAllocateStoreRead", args, expected+1, t)
+		SymbolicMachineUnsatTest("memory", "StructOfStructAllocateStoreRead", args, -2.0, t)
+	}
+}
+
 func TestArrayAllocateStoreRead(t *testing.T) {
 	aVariants := []int{0, 1, 2, 5, 10}
 

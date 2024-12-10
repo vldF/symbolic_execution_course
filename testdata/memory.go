@@ -17,6 +17,33 @@ func StructAllocateStoreRead(a int) float64 {
 	return float64(structure.intField) + structure.floatField
 }
 
+type Test2 struct {
+	field *Test
+}
+
+func StructOfStructAllocateStoreRead(a int) float64 {
+	structure1 := &Test{
+		intField:   0,
+		floatField: 0,
+	}
+
+	structure1.intField = a
+	structure1.floatField = float64(a)
+
+	structure2 := &Test2{
+		field: structure1,
+	}
+
+	structure3 := &Test{
+		intField:   0,
+		floatField: 0,
+	}
+
+	structure2.field = structure3
+
+	return float64(structure2.field.intField) + structure2.field.floatField
+}
+
 func ArrayAllocateStoreRead(a int) int {
 	arr := make([]int, 3)
 	arr[0] = a
