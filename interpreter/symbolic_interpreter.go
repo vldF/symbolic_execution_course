@@ -151,16 +151,9 @@ func addInitState(function *ssa.Function, ctx *Context) {
 			}
 
 			ctx.Memory.NewStruct(typeName, fields)
-			//case *types.Slice:
-			//	typeName := casted.Elem().String()
-			//	ctx.Memory.NewArray(typeName, casted.Elem())
-			//
-			//	initialFrame.Values[name] = StructPointer{
-			//		ctx,
-			//		ctx.Memory.TypeToSortPtr[typeName+"-array-wrapper"],
-			//		ctx.Memory.AllocateStruct(),
-			//		typeName + "-array-wrapper",
-			//	}
+		case *types.Slice:
+			typeName := GetTypeName(casted.Elem())
+			initialFrame.Values[name] = ctx.Memory.AllocateArray(typeName)
 		}
 	}
 

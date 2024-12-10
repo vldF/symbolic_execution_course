@@ -120,7 +120,7 @@ func addArgs(args map[string]any, state *interpreter.State, solver *z3.Solver, c
 	initialStackFrame := state.StackFrames[0]
 
 	for argName, argValue := range args {
-		switch argValue.(type) {
+		switch argCasted := argValue.(type) {
 		case StructArg:
 			//argSortPtr := ctx.Memory.TypeToSortPtr[argCasted.typeName]
 			//argCell := ctx.Memory.Mem[argSortPtr].(interpreter.StructValueCell)
@@ -160,31 +160,17 @@ func addArgs(args map[string]any, state *interpreter.State, solver *z3.Solver, c
 			//solver.Assert(constraint)
 			continue
 		case ArrayArg:
-			//typeName := argCasted.elementTypeName
-			//sortPtr := ctx.Memory.TypeToSortPtr[typeName+"-array-wrapper"]
-			//wrapperSortPtr := ctx.Memory.Mem[sortPtr].(interpreter.ArrayWrapperCell)
-			//
-			//wrapperPtr := initialStackFrame.Values[argName].(interpreter.StructPointer)
-			//
-			//lenConst := wrapperSortPtr.GetLen(wrapperPtr.Ptr, ctx).AsZ3Value().Value.(z3.BV)
-			//expectedLen := ctx.Z3Context.FromInt(int64(len(argCasted.elements)), ctx.TypesContext.IntSort).(z3.BV)
-			//constraint := lenConst.Eq(expectedLen)
-			//solver.Assert(constraint)
-			//
-			//for i, element := range argCasted.elements {
-			//	value := ctx.GoToZ3Value(element)
-			//	val := value.AsZ3Value()
-			//
-			//	idx := ctx.Z3Context.FromInt(int64(i), ctx.TypesContext.IntSort).(z3.BV)
-			//
-			//	arrayValue := interpreter.Z3Value{
-			//		Context: ctx,
-			//		Value:   wrapperSortPtr.GetValue(wrapperPtr.Ptr, ctx).AsZ3Value().Value.(z3.Array).Select(idx),
-			//	}
-			//
-			//	solver.Assert(arrayValue.Eq(&val).AsZ3Value().Value.(z3.Bool))
-			//}
+			argPtr := initialStackFrame.Values[argName].(*interpreter.Pointer)
+			for idx, element := range argCasted.elements {
+				idxValue := ctx.GoToZ3Value(idx)
+				valueInMemory := ctx.Memory.LoadByArrayIndex(argPtr, &idxValue)
+				expectedValue := ctx.GoToZ3Value(element)
+				solver.Assert(valueInMemory.Eq(&expectedValue).AsZ3Value().Value.(z3.Bool))
+			}
 
+			actualLenValue := ctx.Memory.GetArrayLen(argPtr)
+			expectedLenValue := ctx.GoToZ3Value(len(argCasted.elements))
+			solver.Assert(actualLenValue.Eq(&expectedLenValue).AsZ3Value().Value.(z3.Bool))
 			continue
 		}
 
@@ -239,7 +225,6 @@ type StructArg struct {
 }
 
 type ArrayArg struct {
-	elements        []any
-	elementTypeName string
-	elementType     types.Type
+	elements    []any
+	elementType string
 }

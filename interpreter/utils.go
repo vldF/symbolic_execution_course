@@ -17,12 +17,13 @@ func (ctx *Context) TypeToSort(t types.Type) z3.Sort {
 		case types.UntypedComplex, types.Complex64, types.Complex128:
 			return ctx.TypesContext.Pointer
 		}
-		//case *types.Array:
-		//	elemType := t.(*types.Array).Elem()
-		//	return ctx.Z3Context.ArraySort(ctx.TypeToSort(elemType), ctx.TypesContext.IntSort)
-		//case *types.Slice:
-		//	elemType := t.(*types.Slice).Elem()
-		//	return ctx.Z3Context.ArraySort(ctx.TypeToSort(elemType), ctx.TypesContext.IntSort)
+
+	case *types.Array:
+		elemType := t.(*types.Array).Elem()
+		return ctx.Z3Context.ArraySort(ctx.TypesContext.ArrayIndexSort, ctx.TypeToSort(elemType))
+	case *types.Slice:
+		elemType := t.(*types.Slice).Elem()
+		return ctx.Z3Context.ArraySort(ctx.TypesContext.ArrayIndexSort, ctx.TypeToSort(elemType))
 	case *types.Named:
 		return ctx.TypesContext.Pointer
 	}
