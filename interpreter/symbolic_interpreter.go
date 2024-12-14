@@ -132,6 +132,8 @@ func addInitState(function *ssa.Function, ctx *Context) {
 				}
 
 				ctx.Memory.NewStruct(typeName, fields)
+				ptr := ctx.Memory.NewPtr(typeName)
+				initialFrame.Values[name] = ptr
 			default:
 				val := Z3Value{
 					Context: ctx,
@@ -151,6 +153,7 @@ func addInitState(function *ssa.Function, ctx *Context) {
 			}
 
 			ctx.Memory.NewStruct(typeName, fields)
+			initialFrame.Values[name] = ctx.Memory.NewPtr(typeName)
 		case *types.Slice:
 			typeName := GetTypeName(casted.Elem())
 			initialFrame.Values[name] = ctx.Memory.AllocateArray(typeName)
@@ -381,8 +384,14 @@ func visitStoreInstr(casted *ssa.Store, state *State, ctx *Context) []*State {
 	storeValue := visitValue(casted.Val, state, ctx)
 
 	if _, ok := casted.Addr.Type().(*types.Pointer); ok {
-		ptr := visitValue(casted.Addr, state, ctx).(*Pointer)
-		ctx.Memory.Store(ptr, storeValue)
+		_, isParam := casted.Val.(*ssa.Parameter)
+		_, isStruct := casted.Val.Type().Underlying().(*types.Struct)
+		if isParam && isStruct {
+			newState.LastStackFrame().Values[casted.Addr.Name()] = storeValue
+		} else {
+			ptr := visitValue(casted.Addr, state, ctx).(*Pointer)
+			ctx.Memory.Store(ptr, storeValue)
+		}
 	} else {
 		newState.LastStackFrame().Values[casted.Addr.Name()] = storeValue
 	}

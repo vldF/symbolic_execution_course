@@ -10,7 +10,7 @@ type Context struct {
 	Z3Context    *z3.Context
 	Solver       *z3.Solver
 	TypesContext *TypesContext
-	ReturnValue  *Z3Value
+	ReturnValue  Value
 	States       *heap.Heap[*State]
 	Results      []*State
 	Memory       *Memory

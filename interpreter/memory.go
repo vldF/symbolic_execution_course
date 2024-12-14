@@ -1,6 +1,9 @@
 package interpreter
 
-import "github.com/aclements/go-z3/z3"
+import (
+	"github.com/aclements/go-z3/z3"
+	"strconv"
+)
 
 type sortPtr string // type name is unique in the system
 
@@ -28,7 +31,9 @@ func getNextPtr(sortPtr sortPtr) int64 {
 		basePtrs[sortPtr] = 1 // we start from 1 because 0 represents nil
 	}
 
-	return basePtrs[sortPtr]
+	v := basePtrs[sortPtr]
+	basePtrs[sortPtr] = v + 1
+	return v
 }
 
 func (ptr *Pointer) IsNil() BoolValue {
@@ -70,24 +75,27 @@ func (mem *Memory) NullPtr(typeName string) *Pointer {
 func (mem *Memory) Store(ptr *Pointer, value Value) {
 	sPtr := ptr.sPtr
 	if _, ok := mem.memoryLines[sPtr]; !ok {
-		var arrSort z3.Sort
-
-		// todo
-		switch string(sPtr) {
-		case "int":
-			arrSort = mem.ctx.Z3Context.ArraySort(mem.ctx.TypesContext.Pointer, mem.ctx.TypesContext.IntSort)
-		case "float":
-			arrSort = mem.ctx.Z3Context.ArraySort(mem.ctx.TypesContext.Pointer, mem.ctx.TypesContext.FloatSort)
-		default:
-			// non default type
-			arrSort = mem.ctx.Z3Context.ArraySort(mem.ctx.TypesContext.Pointer, mem.ctx.TypesContext.Pointer)
-		}
-
-		mem.memoryLines[sPtr] = mem.ctx.Z3Context.FreshConst(string(sPtr)+"-line", arrSort).(z3.Array)
+		mem.initLineFor(sPtr, getTypeName(value))
 	}
 
 	line := mem.memoryLines[sPtr]
 	mem.memoryLines[sPtr] = line.Store(ptr.ptr.AsZ3Value().Value, value.AsZ3Value().Value)
+}
+
+func (mem *Memory) initLineFor(lineSortPtr sortPtr, typeName string) {
+	var arrSort z3.Sort
+	// todo
+	switch typeName {
+	case "int":
+		arrSort = mem.ctx.Z3Context.ArraySort(mem.ctx.TypesContext.Pointer, mem.ctx.TypesContext.IntSort)
+	case "float64", "float":
+		arrSort = mem.ctx.Z3Context.ArraySort(mem.ctx.TypesContext.Pointer, mem.ctx.TypesContext.FloatSort)
+	default:
+		// non default type
+		arrSort = mem.ctx.Z3Context.ArraySort(mem.ctx.TypesContext.Pointer, mem.ctx.TypesContext.Pointer)
+	}
+
+	mem.memoryLines[lineSortPtr] = mem.ctx.Z3Context.FreshConst(string(lineSortPtr)+"-line", arrSort).(z3.Array)
 }
 
 func (mem *Memory) Load(ptr *Pointer) Value {
@@ -113,8 +121,10 @@ func (mem *Memory) NewStruct(name string, fields map[int]string) {
 	}
 
 	fieldsInDescriptor := make(map[int]sortPtr)
-	for fieldName, fieldTypeName := range fields {
-		fieldsInDescriptor[fieldName] = sortPtr(fieldTypeName)
+	for fieldName, fieldType := range fields {
+		fieldSort := sortPtr(name + "-" + strconv.Itoa(fieldName))
+		fieldsInDescriptor[fieldName] = fieldSort
+		mem.initLineFor(fieldSort, fieldType)
 	}
 
 	structDescriptor := &StructureDescriptor{
@@ -154,8 +164,13 @@ func (mem *Memory) StoreField(structPtr *Pointer, fieldIdx int, value Value) {
 		structDescr.fields[fieldIdx] = fieldSortPtr
 	}
 
-	line := mem.memoryLines[structDescr.fields[fieldIdx]]
-	mem.memoryLines[sPtr] = line.Store(structPtr.ptr.AsZ3Value().Value, value.AsZ3Value().Value)
+	fieldSort := structDescr.fields[fieldIdx]
+	//if _, ok := mem.memoryLines[fieldSort]; !ok {
+	//	mem.initLineFor(fieldSort, )
+	//}
+
+	line := mem.memoryLines[fieldSort]
+	mem.memoryLines[fieldSort] = line.Store(structPtr.ptr.AsZ3Value().Value, value.AsZ3Value().Value)
 }
 
 func (mem *Memory) LoadField(structPtr *Pointer, fieldIdx int) Value {
@@ -169,8 +184,11 @@ func (mem *Memory) LoadField(structPtr *Pointer, fieldIdx int) Value {
 		panic("unknown field " + string(rune(fieldIdx)))
 	}
 
-	fieldSortPtr := structDescr.fields[fieldIdx]
-	line := mem.memoryLines[fieldSortPtr]
+	fieldSort := structDescr.fields[fieldIdx]
+	//if _, ok := mem.memoryLines[fieldSort]; !ok {
+	//	mem.initLineFor(fieldSort)
+	//}
+	line := mem.memoryLines[fieldSort]
 
 	z3Value := line.Select(structPtr.ptr.AsZ3Value().Value)
 
@@ -354,4 +372,19 @@ func (ptr *Pointer) Or(Value) Value {
 
 func (ptr *Pointer) Xor(Value) Value {
 	panic("unsupported")
+}
+
+func getTypeName(v Value) string {
+	// todo
+	switch {
+	case v.IsFloat():
+		return "float"
+	case v.IsInteger():
+		return "int"
+	case v.IsBool():
+		return "bool"
+	default:
+		// pointer
+		return "pointer"
+	}
 }
