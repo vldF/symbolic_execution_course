@@ -16,6 +16,8 @@ func (ctx *Context) TypeToSort(t types.Type) z3.Sort {
 			return ctx.TypesContext.FloatSort
 		case types.UntypedComplex, types.Complex64, types.Complex128:
 			return ctx.TypesContext.Pointer
+		case types.String:
+			return ctx.TypesContext.UnknownSort
 		}
 
 	case *types.Array:
@@ -25,6 +27,8 @@ func (ctx *Context) TypeToSort(t types.Type) z3.Sort {
 		elemType := t.(*types.Slice).Elem()
 		return ctx.Z3Context.ArraySort(ctx.TypesContext.ArrayIndexSort, ctx.TypeToSort(elemType))
 	case *types.Named:
+		return ctx.TypesContext.Pointer
+	case *types.Pointer:
 		return ctx.TypesContext.Pointer
 	}
 
@@ -96,6 +100,8 @@ func GetTypeName(s types.Type) string {
 			return "int"
 		case types.Float64, types.Float32:
 			return "float"
+		case types.String:
+			return "string"
 		}
 	case *types.Pointer:
 		return GetTypeName(castedType.Elem())

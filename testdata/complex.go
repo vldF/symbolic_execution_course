@@ -12,7 +12,7 @@ func ComplexId(a complex128) complex128 {
 	return a
 }
 
-func basicComplexOperations(a complex128, b complex128) complex128 {
+func BasicComplexOperations(a complex128, b complex128) complex128 {
 	if real(a) > real(b) {
 		return a + b
 	} else if imag(a) > imag(b) {
@@ -21,14 +21,15 @@ func basicComplexOperations(a complex128, b complex128) complex128 {
 	return a * b
 }
 
-func complexMagnitude(a complex128) float64 {
+func ComplexMagnitude(a complex128) float64 {
 	magnitude := real(a)*real(a) + imag(a)*imag(a)
 	return magnitude
 }
 
-func complexComparison(a complex128, b complex128) string {
-	magA := complexMagnitude(a)
-	magB := complexMagnitude(b)
+// todo: support test
+func ComplexComparison(a complex128, b complex128) string {
+	magA := ComplexMagnitude(a)
+	magB := ComplexMagnitude(b)
 
 	if magA > magB {
 		return "Magnitude of a is greater than b"
@@ -49,7 +50,7 @@ func ComplexOperations(a complex128, b complex128) complex128 {
 	return a + b
 }
 
-func nestedComplexOperations(a complex128, b complex128) complex128 {
+func NestedComplexOperations(a complex128, b complex128) complex128 {
 	if real(a) < 0 {
 		if imag(a) < 0 {
 			return a * b

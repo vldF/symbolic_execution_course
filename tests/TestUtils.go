@@ -202,11 +202,9 @@ func addResultConstraint(solver *z3.Solver, expectedResult any, ctx *interpreter
 }
 
 type StructArg struct {
-	typeName string
-	fields   map[int]any
+	fields map[int]any
 }
 
 type ArrayArg struct {
-	elements    []any
-	elementType string
+	elements []any
 }

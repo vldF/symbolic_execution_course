@@ -143,13 +143,13 @@ func addInitState(function *ssa.Function, ctx *Context) {
 				initialFrame.Values[name] = &val
 			}
 		case *types.Named:
-			typeName := casted.Obj().Name()
+			typeName := GetTypeName(casted)
 			struct_ := casted.Underlying().(*types.Struct)
 
 			fields := make(map[int]string)
 			fieldsCount := struct_.NumFields()
 			for i := 0; i < fieldsCount; i++ {
-				fields[i] = struct_.Field(i).Type().(*types.Basic).Name()
+				fields[i] = GetTypeName(struct_.Field(i).Type())
 			}
 
 			ctx.Memory.NewStruct(typeName, fields)
@@ -157,6 +157,15 @@ func addInitState(function *ssa.Function, ctx *Context) {
 		case *types.Slice:
 			typeName := GetTypeName(casted.Elem())
 			initialFrame.Values[name] = ctx.Memory.AllocateArray(typeName)
+
+			elemType := casted.Elem()
+			switch castedElemType := elemType.(type) {
+			case *types.Named:
+				ctx.Memory.NewStruct(GetTypeName(castedElemType), GetStructureFields(castedElemType))
+			case *types.Pointer:
+				elemType = castedElemType.Elem()
+				ctx.Memory.NewStruct(GetTypeName(castedElemType), GetStructureFields(elemType.(*types.Named)))
+			}
 		}
 	}
 
@@ -248,7 +257,7 @@ func visitAllocInstr(casted *ssa.Alloc, state *State, ctx *Context) []*State {
 		elementType := GetTypeName(elem.Elem())
 		result = ctx.Memory.AllocateArray(elementType)
 	case *types.Named:
-		structName := elem.Obj().Name()
+		structName := GetTypeName(elem)
 		ctx.Memory.NewStruct(structName, GetStructureFields(elem))
 		result = ctx.Memory.NewPtr(structName)
 	default:
@@ -602,7 +611,7 @@ func visitFieldAddr(casted *ssa.FieldAddr, state *State, ctx *Context) Value {
 		field := ctx.Memory.GetFieldPointer(castedValue, fieldIdx)
 		return field
 	default:
-		typeName := casted.X.Type().(*types.Pointer).Elem().(*types.Named).Obj().Name()
+		typeName := casted.X.Type().(*types.Pointer).Elem().(*types.Named).String()
 		return ctx.Memory.GetUnsafePointerToField(value, fieldIdx, typeName)
 	}
 }

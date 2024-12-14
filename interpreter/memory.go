@@ -102,7 +102,7 @@ func (mem *Memory) Load(ptr *Pointer) Value {
 	sPtr := ptr.sPtr
 	context := mem.ctx
 	if _, ok := mem.memoryLines[sPtr]; !ok {
-		panic("no memory line for the pointer")
+		mem.initLineFor(sPtr, string(sPtr))
 	}
 
 	line := mem.memoryLines[sPtr]

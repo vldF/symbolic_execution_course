@@ -13,8 +13,7 @@ func TestStruct_1(t *testing.T) {
 	sArgs[1] = 2.0
 
 	args["s"] = StructArg{
-		typeName: "Struct1",
-		fields:   sArgs,
+		fields: sArgs,
 	}
 
 	expected := testdata.TestStruct(testdata.Struct1{IntField: 1, FloatField: 2.0})

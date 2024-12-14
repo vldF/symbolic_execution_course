@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"symbolic_execution_course/testdata"
 	"testing"
 )
 
@@ -9,10 +10,10 @@ func TestIntegerOperations_1(t *testing.T) {
 	args["a"] = 2
 	args["b"] = 1
 
-	expected := 3
+	expected := testdata.IntegerOperations(2, 1)
 
-	SymbolicMachineSatTest("numbers", "integerOperations", args, expected, t)
-	SymbolicMachineUnsatTest("numbers", "integerOperations", args, expected+1, t)
+	SymbolicMachineSatTest("numbers", "IntegerOperations", args, expected, t)
+	SymbolicMachineUnsatTest("numbers", "IntegerOperations", args, expected+1, t)
 }
 
 func TestIntegerOperations_2(t *testing.T) {
@@ -20,10 +21,10 @@ func TestIntegerOperations_2(t *testing.T) {
 	args["a"] = 1
 	args["b"] = 2
 
-	expected := -1
+	expected := testdata.IntegerOperations(1, 2)
 
-	SymbolicMachineSatTest("numbers", "integerOperations", args, expected, t)
-	SymbolicMachineUnsatTest("numbers", "integerOperations", args, expected+1, t)
+	SymbolicMachineSatTest("numbers", "IntegerOperations", args, expected, t)
+	SymbolicMachineUnsatTest("numbers", "IntegerOperations", args, expected+1, t)
 }
 
 func TestIntegerOperations_3(t *testing.T) {
@@ -31,10 +32,10 @@ func TestIntegerOperations_3(t *testing.T) {
 	args["a"] = 2
 	args["b"] = 2
 
-	expected := 4
+	expected := testdata.IntegerOperations(2, 2)
 
-	SymbolicMachineSatTest("numbers", "integerOperations", args, expected, t)
-	SymbolicMachineUnsatTest("numbers", "integerOperations", args, expected+1, t)
+	SymbolicMachineSatTest("numbers", "IntegerOperations", args, expected, t)
+	SymbolicMachineUnsatTest("numbers", "IntegerOperations", args, expected+1, t)
 }
 
 func TestFloatOperations_1(t *testing.T) {
@@ -42,10 +43,10 @@ func TestFloatOperations_1(t *testing.T) {
 	args["x"] = 5.0
 	args["y"] = 2.0
 
-	expected := 2.5
+	expected := testdata.FloatOperations(5, 2)
 
-	SymbolicMachineSatTest("numbers", "floatOperations", args, expected, t)
-	SymbolicMachineUnsatTest("numbers", "floatOperations", args, expected+1, t)
+	SymbolicMachineSatTest("numbers", "FloatOperations", args, expected, t)
+	SymbolicMachineUnsatTest("numbers", "FloatOperations", args, expected+1, t)
 }
 
 func TestFloatOperations_2(t *testing.T) {
@@ -53,10 +54,10 @@ func TestFloatOperations_2(t *testing.T) {
 	args["x"] = 2.0
 	args["y"] = 5.0
 
-	expected := 10.0
+	expected := testdata.FloatOperations(2, 5)
 
-	SymbolicMachineSatTest("numbers", "floatOperations", args, expected, t)
-	SymbolicMachineUnsatTest("numbers", "floatOperations", args, expected+1, t)
+	SymbolicMachineSatTest("numbers", "FloatOperations", args, expected, t)
+	SymbolicMachineUnsatTest("numbers", "FloatOperations", args, expected+1, t)
 }
 
 func TestFloatOperations_3(t *testing.T) {
@@ -64,10 +65,10 @@ func TestFloatOperations_3(t *testing.T) {
 	args["x"] = 2.0
 	args["y"] = 2.0
 
-	expected := 0.0
+	expected := testdata.FloatOperations(2, 2)
 
-	SymbolicMachineSatTest("numbers", "floatOperations", args, expected, t)
-	SymbolicMachineUnsatTest("numbers", "floatOperations", args, expected+1, t)
+	SymbolicMachineSatTest("numbers", "FloatOperations", args, expected, t)
+	SymbolicMachineUnsatTest("numbers", "FloatOperations", args, expected+1, t)
 }
 
 func TestMixedOperations_1(t *testing.T) {
@@ -75,10 +76,10 @@ func TestMixedOperations_1(t *testing.T) {
 	args["a"] = 2
 	args["b"] = 3.0
 
-	expected := 10.0
+	expected := testdata.MixedOperations(2, 3)
 
-	SymbolicMachineSatTest("numbers", "mixedOperations", args, expected, t)
-	SymbolicMachineUnsatTest("numbers", "mixedOperations", args, expected+1, t)
+	SymbolicMachineSatTest("numbers", "MixedOperations", args, expected, t)
+	SymbolicMachineUnsatTest("numbers", "MixedOperations", args, expected+1, t)
 }
 
 func TestMixedOperations_2(t *testing.T) {
@@ -86,10 +87,10 @@ func TestMixedOperations_2(t *testing.T) {
 	args["a"] = 3
 	args["b"] = 3.0
 
-	expected := 0.0
+	expected := testdata.MixedOperations(3, 3)
 
-	SymbolicMachineSatTest("numbers", "mixedOperations", args, expected, t)
-	SymbolicMachineUnsatTest("numbers", "mixedOperations", args, expected+1, t)
+	SymbolicMachineSatTest("numbers", "MixedOperations", args, expected, t)
+	SymbolicMachineUnsatTest("numbers", "MixedOperations", args, expected+1, t)
 }
 
 func TestMixedOperations_3(t *testing.T) {
@@ -97,10 +98,10 @@ func TestMixedOperations_3(t *testing.T) {
 	args["a"] = 3
 	args["b"] = 4.0
 
-	expected := -2.0
+	expected := testdata.MixedOperations(3, 4)
 
-	SymbolicMachineSatTest("numbers", "mixedOperations", args, expected, t)
-	SymbolicMachineUnsatTest("numbers", "mixedOperations", args, expected+1, t)
+	SymbolicMachineSatTest("numbers", "MixedOperations", args, expected, t)
+	SymbolicMachineUnsatTest("numbers", "MixedOperations", args, expected+1, t)
 }
 
 func TestMixedOperations_4(t *testing.T) {
@@ -108,10 +109,10 @@ func TestMixedOperations_4(t *testing.T) {
 	args["a"] = 9
 	args["b"] = 4.0
 
-	expected := 10.0
+	expected := testdata.MixedOperations(9, 4)
 
-	SymbolicMachineSatTest("numbers", "mixedOperations", args, expected, t)
-	SymbolicMachineUnsatTest("numbers", "mixedOperations", args, expected+1, t)
+	SymbolicMachineSatTest("numbers", "MixedOperations", args, expected, t)
+	SymbolicMachineUnsatTest("numbers", "MixedOperations", args, expected+1, t)
 }
 
 func TestMixedOperations_5(t *testing.T) {
@@ -119,10 +120,10 @@ func TestMixedOperations_5(t *testing.T) {
 	args["a"] = 4
 	args["b"] = 7.0
 
-	expected := 5.5
+	expected := testdata.MixedOperations(4, 7)
 
-	SymbolicMachineSatTest("numbers", "mixedOperations", args, expected, t)
-	SymbolicMachineUnsatTest("numbers", "mixedOperations", args, expected+1, t)
+	SymbolicMachineSatTest("numbers", "MixedOperations", args, expected, t)
+	SymbolicMachineUnsatTest("numbers", "MixedOperations", args, expected+1, t)
 }
 
 func TestMixedOperations_6(t *testing.T) {
@@ -130,10 +131,10 @@ func TestMixedOperations_6(t *testing.T) {
 	args["a"] = 3
 	args["b"] = -7.0
 
-	expected := 5.0
+	expected := testdata.MixedOperations(3, -7)
 
-	SymbolicMachineSatTest("numbers", "mixedOperations", args, expected, t)
-	SymbolicMachineUnsatTest("numbers", "mixedOperations", args, expected+1, t)
+	SymbolicMachineSatTest("numbers", "MixedOperations", args, expected, t)
+	SymbolicMachineUnsatTest("numbers", "MixedOperations", args, expected+1, t)
 }
 
 func TestNestedConditions_1(t *testing.T) {
@@ -141,10 +142,10 @@ func TestNestedConditions_1(t *testing.T) {
 	args["a"] = 1
 	args["b"] = 2.0
 
-	expected := 3.0
+	expected := testdata.NestedConditions(1, 2)
 
-	SymbolicMachineSatTest("numbers", "nestedConditions", args, expected, t)
-	SymbolicMachineUnsatTest("numbers", "nestedConditions", args, expected+1, t)
+	SymbolicMachineSatTest("numbers", "NestedConditions", args, expected, t)
+	SymbolicMachineUnsatTest("numbers", "NestedConditions", args, expected+1, t)
 }
 
 func TestNestedConditions_2(t *testing.T) {
@@ -152,10 +153,10 @@ func TestNestedConditions_2(t *testing.T) {
 	args["a"] = -1
 	args["b"] = 2.0
 
-	expected := -1.0
+	expected := testdata.NestedConditions(-1, 2)
 
-	SymbolicMachineSatTest("numbers", "nestedConditions", args, expected, t)
-	SymbolicMachineUnsatTest("numbers", "nestedConditions", args, expected+1, t)
+	SymbolicMachineSatTest("numbers", "NestedConditions", args, expected, t)
+	SymbolicMachineUnsatTest("numbers", "NestedConditions", args, expected+1, t)
 }
 
 func TestNestedConditions_3(t *testing.T) {
@@ -163,10 +164,10 @@ func TestNestedConditions_3(t *testing.T) {
 	args["a"] = -1
 	args["b"] = -2.0
 
-	expected := -1.0
+	expected := testdata.NestedConditions(-1, -2)
 
-	SymbolicMachineSatTest("numbers", "nestedConditions", args, expected, t)
-	SymbolicMachineUnsatTest("numbers", "nestedConditions", args, expected+1, t)
+	SymbolicMachineSatTest("numbers", "NestedConditions", args, expected, t)
+	SymbolicMachineUnsatTest("numbers", "NestedConditions", args, expected+1, t)
 }
 
 func TestBitwiseOperations_1(t *testing.T) {
@@ -174,10 +175,10 @@ func TestBitwiseOperations_1(t *testing.T) {
 	args["a"] = 2
 	args["b"] = 4
 
-	expected := 2 | 4
+	expected := testdata.BitwiseOperations(2, 4)
 
-	SymbolicMachineSatTest("numbers", "bitwiseOperations", args, expected, t)
-	SymbolicMachineUnsatTest("numbers", "bitwiseOperations", args, expected+1, t)
+	SymbolicMachineSatTest("numbers", "BitwiseOperations", args, expected, t)
+	SymbolicMachineUnsatTest("numbers", "BitwiseOperations", args, expected+1, t)
 }
 
 func TestBitwiseOperations_2(t *testing.T) {
@@ -185,10 +186,10 @@ func TestBitwiseOperations_2(t *testing.T) {
 	args["a"] = 3
 	args["b"] = 5
 
-	expected := 3 & 5
+	expected := testdata.BitwiseOperations(3, 5)
 
-	SymbolicMachineSatTest("numbers", "bitwiseOperations", args, expected, t)
-	SymbolicMachineUnsatTest("numbers", "bitwiseOperations", args, expected+1, t)
+	SymbolicMachineSatTest("numbers", "BitwiseOperations", args, expected, t)
+	SymbolicMachineUnsatTest("numbers", "BitwiseOperations", args, expected+1, t)
 }
 
 func TestBitwiseOperations_3(t *testing.T) {
@@ -196,10 +197,10 @@ func TestBitwiseOperations_3(t *testing.T) {
 	args["a"] = 4
 	args["b"] = 5
 
-	expected := 4 ^ 5
+	expected := testdata.BitwiseOperations(4, 5)
 
-	SymbolicMachineSatTest("numbers", "bitwiseOperations", args, expected, t)
-	SymbolicMachineUnsatTest("numbers", "bitwiseOperations", args, expected+1, t)
+	SymbolicMachineSatTest("numbers", "BitwiseOperations", args, expected, t)
+	SymbolicMachineUnsatTest("numbers", "BitwiseOperations", args, expected+1, t)
 }
 
 func TestAdvancedBitwise_1(t *testing.T) {
@@ -207,10 +208,10 @@ func TestAdvancedBitwise_1(t *testing.T) {
 	args["a"] = 5
 	args["b"] = 4
 
-	expected := 5 << 1
+	expected := testdata.AdvancedBitwise(5, 4)
 
-	SymbolicMachineSatTest("numbers", "advancedBitwise", args, expected, t)
-	SymbolicMachineUnsatTest("numbers", "advancedBitwise", args, expected+1, t)
+	SymbolicMachineSatTest("numbers", "AdvancedBitwise", args, expected, t)
+	SymbolicMachineUnsatTest("numbers", "AdvancedBitwise", args, expected+1, t)
 }
 
 func TestAdvancedBitwise_2(t *testing.T) {
@@ -218,10 +219,10 @@ func TestAdvancedBitwise_2(t *testing.T) {
 	args["a"] = 4
 	args["b"] = 5
 
-	expected := 5 >> 1
+	expected := testdata.AdvancedBitwise(4, 5)
 
-	SymbolicMachineSatTest("numbers", "advancedBitwise", args, expected, t)
-	SymbolicMachineUnsatTest("numbers", "advancedBitwise", args, expected+1, t)
+	SymbolicMachineSatTest("numbers", "AdvancedBitwise", args, expected, t)
+	SymbolicMachineUnsatTest("numbers", "AdvancedBitwise", args, expected+1, t)
 }
 
 func TestAdvancedBitwise_3(t *testing.T) {
@@ -229,10 +230,10 @@ func TestAdvancedBitwise_3(t *testing.T) {
 	args["a"] = 4
 	args["b"] = 4
 
-	expected := 4 ^ 4
+	expected := testdata.AdvancedBitwise(4, 4)
 
-	SymbolicMachineSatTest("numbers", "advancedBitwise", args, expected, t)
-	SymbolicMachineUnsatTest("numbers", "advancedBitwise", args, expected+1, t)
+	SymbolicMachineSatTest("numbers", "AdvancedBitwise", args, expected, t)
+	SymbolicMachineUnsatTest("numbers", "AdvancedBitwise", args, expected+1, t)
 }
 
 func TestCombinedBitwise_1(t *testing.T) {
@@ -240,10 +241,10 @@ func TestCombinedBitwise_1(t *testing.T) {
 	args["a"] = 2
 	args["b"] = 1
 
-	expected := 2 | 1
+	expected := testdata.CombinedBitwise(2, 1)
 
-	SymbolicMachineSatTest("numbers", "combinedBitwise", args, expected, t)
-	SymbolicMachineUnsatTest("numbers", "combinedBitwise", args, expected+1, t)
+	SymbolicMachineSatTest("numbers", "CombinedBitwise", args, expected, t)
+	SymbolicMachineUnsatTest("numbers", "CombinedBitwise", args, expected+1, t)
 }
 
 func TestCombinedBitwise_2(t *testing.T) {
@@ -251,10 +252,10 @@ func TestCombinedBitwise_2(t *testing.T) {
 	args["a"] = 3
 	args["b"] = 1
 
-	expected := 1
+	expected := testdata.CombinedBitwise(3, 1)
 
-	SymbolicMachineSatTest("numbers", "combinedBitwise", args, expected, t)
-	SymbolicMachineUnsatTest("numbers", "combinedBitwise", args, expected+1, t)
+	SymbolicMachineSatTest("numbers", "CombinedBitwise", args, expected, t)
+	SymbolicMachineUnsatTest("numbers", "CombinedBitwise", args, expected+1, t)
 }
 
 func TestCombinedBitwise_3(t *testing.T) {
@@ -262,10 +263,10 @@ func TestCombinedBitwise_3(t *testing.T) {
 	args["a"] = 0b1111
 	args["b"] = 0b101111
 
-	expected := 0b1111 ^ 0b101111
+	expected := testdata.CombinedBitwise(0b1111, 0b101111)
 
-	SymbolicMachineSatTest("numbers", "combinedBitwise", args, expected, t)
-	SymbolicMachineUnsatTest("numbers", "combinedBitwise", args, expected+1, t)
+	SymbolicMachineSatTest("numbers", "CombinedBitwise", args, expected, t)
+	SymbolicMachineUnsatTest("numbers", "CombinedBitwise", args, expected+1, t)
 }
 
 func TestNestedBitwise_1(t *testing.T) {
@@ -273,10 +274,10 @@ func TestNestedBitwise_1(t *testing.T) {
 	args["a"] = -1
 	args["b"] = 0
 
-	expected := -1
+	expected := testdata.NestedBitwise(-1, 0)
 
-	SymbolicMachineSatTest("numbers", "nestedBitwise", args, expected, t)
-	SymbolicMachineUnsatTest("numbers", "nestedBitwise", args, expected+1, t)
+	SymbolicMachineSatTest("numbers", "NestedBitwise", args, expected, t)
+	SymbolicMachineUnsatTest("numbers", "NestedBitwise", args, expected+1, t)
 }
 
 func TestNestedBitwise_2(t *testing.T) {
@@ -284,10 +285,10 @@ func TestNestedBitwise_2(t *testing.T) {
 	args["a"] = 0b10101
 	args["b"] = -1
 
-	expected := 0b10101 ^ 0
+	expected := testdata.NestedBitwise(0b10101, -1)
 
-	SymbolicMachineSatTest("numbers", "nestedBitwise", args, expected, t)
-	SymbolicMachineUnsatTest("numbers", "nestedBitwise", args, expected+1, t)
+	SymbolicMachineSatTest("numbers", "NestedBitwise", args, expected, t)
+	SymbolicMachineUnsatTest("numbers", "NestedBitwise", args, expected+1, t)
 }
 
 func TestNestedBitwise_3(t *testing.T) {
@@ -295,10 +296,10 @@ func TestNestedBitwise_3(t *testing.T) {
 	args["a"] = 1
 	args["b"] = 2
 
-	expected := 1 | 2
+	expected := testdata.NestedBitwise(1, 2)
 
-	SymbolicMachineSatTest("numbers", "nestedBitwise", args, expected, t)
-	SymbolicMachineUnsatTest("numbers", "nestedBitwise", args, expected+1, t)
+	SymbolicMachineSatTest("numbers", "NestedBitwise", args, expected, t)
+	SymbolicMachineUnsatTest("numbers", "NestedBitwise", args, expected+1, t)
 }
 
 func TestNestedBitwise_4(t *testing.T) {
@@ -306,8 +307,8 @@ func TestNestedBitwise_4(t *testing.T) {
 	args["a"] = 1
 	args["b"] = 3
 
-	expected := 1 & 3
+	expected := testdata.NestedBitwise(1, 3)
 
-	SymbolicMachineSatTest("numbers", "nestedBitwise", args, expected, t)
-	SymbolicMachineUnsatTest("numbers", "nestedBitwise", args, expected+1, t)
+	SymbolicMachineSatTest("numbers", "NestedBitwise", args, expected, t)
+	SymbolicMachineUnsatTest("numbers", "NestedBitwise", args, expected+1, t)
 }

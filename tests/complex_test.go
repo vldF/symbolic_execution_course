@@ -37,35 +37,44 @@ func TestComplexId_1(t *testing.T) {
 
 func TestBasicComplexOperations_1(t *testing.T) {
 	args := make(map[string]any)
-	args["a"] = complex(2.0, 2.0)
-	args["b"] = complex(1.0, 4.0)
+	a := complex(2.0, 2.0)
+	b := complex(1.0, 4.0)
 
-	expected := complex(2.0, 2.0) + complex(1.0, 4.0)
+	args["a"] = a
+	args["b"] = b
 
-	SymbolicMachineSatTest("complex", "basicComplexOperations", args, expected, t)
-	SymbolicMachineUnsatTest("complex", "basicComplexOperations", args, expected+complex(1.0, 1.0), t)
+	expected := testdata.BasicComplexOperations(a, b)
+
+	SymbolicMachineSatTest("complex", "BasicComplexOperations", args, expected, t)
+	SymbolicMachineUnsatTest("complex", "BasicComplexOperations", args, expected+complex(1.0, 1.0), t)
 }
 
 func TestBasicComplexOperations_2(t *testing.T) {
 	args := make(map[string]any)
-	args["a"] = complex(1.0, 4.0)
-	args["b"] = complex(3.0, 2.0)
+	a := complex(1.0, 4.0)
+	b := complex(3.0, 2.0)
 
-	expected := complex(-2.0, 2.0)
+	args["a"] = a
+	args["b"] = b
 
-	SymbolicMachineSatTest("complex", "basicComplexOperations", args, expected, t)
-	SymbolicMachineUnsatTest("complex", "basicComplexOperations", args, expected+complex(1.0, 1.0), t)
+	expected := testdata.BasicComplexOperations(a, b)
+
+	SymbolicMachineSatTest("complex", "BasicComplexOperations", args, expected, t)
+	SymbolicMachineUnsatTest("complex", "BasicComplexOperations", args, expected+complex(1.0, 1.0), t)
 }
 
 func TestBasicComplexOperations_3(t *testing.T) {
 	args := make(map[string]any)
-	args["a"] = complex(1.0, 2.0)
-	args["b"] = complex(3.0, 4.0)
+	a := complex(1.0, 2.0)
+	b := complex(3.0, 4.0)
 
-	expected := complex(-5, 10)
+	args["a"] = a
+	args["b"] = b
 
-	SymbolicMachineSatTest("complex", "basicComplexOperations", args, expected, t)
-	SymbolicMachineUnsatTest("complex", "basicComplexOperations", args, expected+complex(1.0, 1.0), t)
+	expected := testdata.BasicComplexOperations(a, b)
+
+	SymbolicMachineSatTest("complex", "BasicComplexOperations", args, expected, t)
+	SymbolicMachineUnsatTest("complex", "BasicComplexOperations", args, expected+complex(1.0, 1.0), t)
 }
 
 func TestComplexMagnitude_1(t *testing.T) {
@@ -73,10 +82,10 @@ func TestComplexMagnitude_1(t *testing.T) {
 	c := complex(1.0, 2.0)
 	args["a"] = c
 
-	expected := real(c)*real(c) + imag(c)*imag(c)
+	expected := testdata.ComplexMagnitude(c)
 
-	SymbolicMachineSatTest("complex", "complexMagnitude", args, expected, t)
-	SymbolicMachineUnsatTest("complex", "complexMagnitude", args, expected+1, t)
+	SymbolicMachineSatTest("complex", "ComplexMagnitude", args, expected, t)
+	SymbolicMachineUnsatTest("complex", "ComplexMagnitude", args, expected+1, t)
 }
 
 func TestComplexMagnitude_2(t *testing.T) {
@@ -84,10 +93,10 @@ func TestComplexMagnitude_2(t *testing.T) {
 	c := complex(0.0, 0.0)
 	args["a"] = c
 
-	expected := real(c)*real(c) + imag(c)*imag(c)
+	expected := testdata.ComplexMagnitude(c)
 
-	SymbolicMachineSatTest("complex", "complexMagnitude", args, expected, t)
-	SymbolicMachineUnsatTest("complex", "complexMagnitude", args, expected+1, t)
+	SymbolicMachineSatTest("complex", "ComplexMagnitude", args, expected, t)
+	SymbolicMachineUnsatTest("complex", "ComplexMagnitude", args, expected+1, t)
 }
 
 func TestComplexMagnitude_3(t *testing.T) {
@@ -95,10 +104,10 @@ func TestComplexMagnitude_3(t *testing.T) {
 	c := complex(10.0, 10.0)
 	args["a"] = c
 
-	expected := real(c)*real(c) + imag(c)*imag(c)
+	expected := testdata.ComplexMagnitude(c)
 
-	SymbolicMachineSatTest("complex", "complexMagnitude", args, expected, t)
-	SymbolicMachineUnsatTest("complex", "complexMagnitude", args, expected+1, t)
+	SymbolicMachineSatTest("complex", "ComplexMagnitude", args, expected, t)
+	SymbolicMachineUnsatTest("complex", "ComplexMagnitude", args, expected+1, t)
 }
 
 func TestComplexOperations_1(t *testing.T) {
@@ -121,7 +130,7 @@ func TestComplexOperations_2(t *testing.T) {
 	args["a"] = a
 	args["b"] = b
 
-	expected := a
+	expected := testdata.ComplexOperations(a, b)
 
 	SymbolicMachineSatTest("complex", "ComplexOperations", args, expected, t)
 	SymbolicMachineUnsatTest("complex", "ComplexOperations", args, expected+1, t)
@@ -134,7 +143,7 @@ func TestComplexOperations_3(t *testing.T) {
 	args["a"] = a
 	args["b"] = b
 
-	expected := a / b
+	expected := testdata.ComplexOperations(a, b)
 
 	SymbolicMachineSatTest("complex", "ComplexOperations", args, expected, t)
 	SymbolicMachineUnsatTest("complex", "ComplexOperations", args, expected+1, t)
@@ -147,7 +156,7 @@ func TestComplexOperations_4(t *testing.T) {
 	args["a"] = a
 	args["b"] = b
 
-	expected := a + b
+	expected := testdata.ComplexOperations(a, b)
 
 	SymbolicMachineSatTest("complex", "ComplexOperations", args, expected, t)
 	SymbolicMachineUnsatTest("complex", "ComplexOperations", args, expected+1, t)
@@ -160,10 +169,10 @@ func TestNestedComplexOperations_1(t *testing.T) {
 	args["a"] = a
 	args["b"] = b
 
-	expected := a * b
+	expected := testdata.NestedComplexOperations(a, b)
 
-	SymbolicMachineSatTest("complex", "nestedComplexOperations", args, expected, t)
-	SymbolicMachineUnsatTest("complex", "nestedComplexOperations", args, expected+1, t)
+	SymbolicMachineSatTest("complex", "NestedComplexOperations", args, expected, t)
+	SymbolicMachineUnsatTest("complex", "NestedComplexOperations", args, expected+1, t)
 }
 
 func TestNestedComplexOperations_2(t *testing.T) {
@@ -173,10 +182,10 @@ func TestNestedComplexOperations_2(t *testing.T) {
 	args["a"] = a
 	args["b"] = b
 
-	expected := a + b
+	expected := testdata.NestedComplexOperations(a, b)
 
-	SymbolicMachineSatTest("complex", "nestedComplexOperations", args, expected, t)
-	SymbolicMachineUnsatTest("complex", "nestedComplexOperations", args, expected+1, t)
+	SymbolicMachineSatTest("complex", "NestedComplexOperations", args, expected, t)
+	SymbolicMachineUnsatTest("complex", "NestedComplexOperations", args, expected+1, t)
 }
 
 func TestNestedComplexOperations_3(t *testing.T) {
@@ -186,10 +195,10 @@ func TestNestedComplexOperations_3(t *testing.T) {
 	args["a"] = a
 	args["b"] = b
 
-	expected := a - b
+	expected := testdata.NestedComplexOperations(a, b)
 
-	SymbolicMachineSatTest("complex", "nestedComplexOperations", args, expected, t)
-	SymbolicMachineUnsatTest("complex", "nestedComplexOperations", args, expected+1, t)
+	SymbolicMachineSatTest("complex", "NestedComplexOperations", args, expected, t)
+	SymbolicMachineUnsatTest("complex", "NestedComplexOperations", args, expected+1, t)
 }
 
 func TestNestedComplexOperations_4(t *testing.T) {
@@ -199,8 +208,8 @@ func TestNestedComplexOperations_4(t *testing.T) {
 	args["a"] = a
 	args["b"] = b
 
-	expected := a + b
+	expected := testdata.NestedComplexOperations(a, b)
 
-	SymbolicMachineSatTest("complex", "nestedComplexOperations", args, expected, t)
-	SymbolicMachineUnsatTest("complex", "nestedComplexOperations", args, expected+1, t)
+	SymbolicMachineSatTest("complex", "NestedComplexOperations", args, expected, t)
+	SymbolicMachineUnsatTest("complex", "NestedComplexOperations", args, expected+1, t)
 }
