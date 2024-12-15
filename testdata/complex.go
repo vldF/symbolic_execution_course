@@ -26,17 +26,16 @@ func ComplexMagnitude(a complex128) float64 {
 	return magnitude
 }
 
-// todo: support test
-func ComplexComparison(a complex128, b complex128) string {
+func ComplexComparison(a complex128, b complex128) int {
 	magA := ComplexMagnitude(a)
 	magB := ComplexMagnitude(b)
 
 	if magA > magB {
-		return "Magnitude of a is greater than b"
+		return 1
 	} else if magA < magB {
-		return "Magnitude of b is greater than a"
+		return -1
 	}
-	return "Magnitudes are equal"
+	return 0
 }
 
 func ComplexOperations(a complex128, b complex128) complex128 {

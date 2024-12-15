@@ -8,6 +8,7 @@ import (
 
 func TestCompareElement(t *testing.T) {
 	argVariants := [][]int{{-1, 1}, {3, 1}, {1, 6}, {0, 2}, {1, 2}}
+	ctx := PrepareTest("arrays", "CompareElement")
 
 	for _, variant := range argVariants {
 		testName := "index: " + strconv.Itoa(variant[0]) + ", value: " + strconv.Itoa(variant[1])
@@ -23,8 +24,8 @@ func TestCompareElement(t *testing.T) {
 
 			expected := testdata.CompareElement([]int{1, 2, 3}, variant[0], variant[1])
 
-			SymbolicMachineSatTest("arrays", "CompareElement", args, expected, t)
-			SymbolicMachineUnsatTest("arrays", "CompareElement", args, expected+1, t)
+			SymbolicMachineSatTest(ctx, args, expected, t)
+			SymbolicMachineUnsatTest(ctx, args, expected+1, t)
 		})
 	}
 }
@@ -38,6 +39,7 @@ func TestCompareAges(t *testing.T) {
 		{Name: "name3", Age: 10},
 		{Name: "name4", Age: 15},
 	}
+	ctx := PrepareTest("arrays", "CompareAge")
 
 	for _, variant := range argVariants {
 		testName := "index: " + strconv.Itoa(variant[0]) + ", value: " + strconv.Itoa(variant[1])
@@ -49,7 +51,7 @@ func TestCompareAges(t *testing.T) {
 
 			expected := testdata.CompareAge(people, variant[0], variant[1])
 
-			SymbolicMachineSatTest("arrays", "CompareAge", args, expected, t)
+			SymbolicMachineSatTest(ctx, args, expected, t)
 		})
 	}
 }

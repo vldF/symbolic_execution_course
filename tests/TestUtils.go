@@ -12,13 +12,12 @@ import (
 )
 
 func SymbolicMachineUnsatTest(
-	fileName string,
-	funcName string,
+	ctx *interpreter.Context,
 	args map[string]any,
 	unexpected any,
 	t *testing.T,
 ) {
-	solver := symbolicMachineTest(fileName, funcName, args, unexpected)
+	solver := symbolicMachineTest(ctx, args, unexpected)
 
 	println("solver with test constraints:", solver.String())
 	println()
@@ -35,14 +34,20 @@ func SymbolicMachineUnsatTest(
 	t.Fail()
 }
 
-func SymbolicMachineSatTest(
+func PrepareTest(
 	fileName string,
 	funcName string,
+) *interpreter.Context {
+	return runAnalysisFor(fileName, funcName)
+}
+
+func SymbolicMachineSatTest(
+	ctx *interpreter.Context,
 	args map[string]any,
 	expected any,
 	t *testing.T,
 ) {
-	solver := symbolicMachineTest(fileName, funcName, args, expected)
+	solver := symbolicMachineTest(ctx, args, expected)
 
 	println("solver with test constraints:", solver.String())
 	println()
@@ -58,8 +63,7 @@ func SymbolicMachineSatTest(
 	println("Model:", model.String())
 }
 
-func symbolicMachineTest(fileName string, funcName string, args map[string]any, expected any) *z3.Solver {
-	context := runAnalysisFor(fileName, funcName)
+func symbolicMachineTest(context *interpreter.Context, args map[string]any, expected any) *z3.Solver {
 	solver := context.Solver
 	solver.Reset()
 	addAsserts(context.Results, solver)

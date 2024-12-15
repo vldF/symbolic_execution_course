@@ -9,6 +9,7 @@ import (
 func TestStructAllocateStoreRead(t *testing.T) {
 	aVariants := []int{0, 1, 2, 5, 10}
 
+	ctx := PrepareTest("memory", "StructAllocateStoreRead")
 	for _, variant := range aVariants {
 		t.Run(strconv.Itoa(variant), func(t *testing.T) {
 			args := make(map[string]any)
@@ -16,9 +17,9 @@ func TestStructAllocateStoreRead(t *testing.T) {
 
 			expected := testdata.StructAllocateStoreRead(variant)
 
-			SymbolicMachineSatTest("memory", "StructAllocateStoreRead", args, expected, t)
-			SymbolicMachineUnsatTest("memory", "StructAllocateStoreRead", args, expected+1, t)
-			SymbolicMachineUnsatTest("memory", "StructAllocateStoreRead", args, -2.0, t)
+			SymbolicMachineSatTest(ctx, args, expected, t)
+			SymbolicMachineUnsatTest(ctx, args, expected+1, t)
+			SymbolicMachineUnsatTest(ctx, args, -2.0, t)
 		})
 	}
 }
@@ -26,6 +27,7 @@ func TestStructAllocateStoreRead(t *testing.T) {
 func TestStructOfStructAllocateStoreRead(t *testing.T) {
 	aVariants := []int{0, 1, 2, 5, 10}
 
+	ctx := PrepareTest("memory", "StructOfStructAllocateStoreRead")
 	for _, variant := range aVariants {
 		t.Run(strconv.Itoa(variant), func(t *testing.T) {
 			args := make(map[string]any)
@@ -33,9 +35,9 @@ func TestStructOfStructAllocateStoreRead(t *testing.T) {
 
 			expected := testdata.StructOfStructAllocateStoreRead(variant)
 
-			SymbolicMachineSatTest("memory", "StructOfStructAllocateStoreRead", args, expected, t)
-			SymbolicMachineUnsatTest("memory", "StructOfStructAllocateStoreRead", args, expected+1, t)
-			SymbolicMachineUnsatTest("memory", "StructOfStructAllocateStoreRead", args, -2.0, t)
+			SymbolicMachineSatTest(ctx, args, expected, t)
+			SymbolicMachineUnsatTest(ctx, args, expected+1, t)
+			SymbolicMachineUnsatTest(ctx, args, -2.0, t)
 		})
 	}
 }
@@ -43,6 +45,7 @@ func TestStructOfStructAllocateStoreRead(t *testing.T) {
 func TestArrayAllocateStoreRead(t *testing.T) {
 	aVariants := []int{0, 1, 2, 5, 10}
 
+	ctx := PrepareTest("memory", "ArrayAllocateStoreRead")
 	for _, variant := range aVariants {
 		t.Run(strconv.Itoa(variant), func(t *testing.T) {
 			args := make(map[string]any)
@@ -50,8 +53,8 @@ func TestArrayAllocateStoreRead(t *testing.T) {
 
 			expected := testdata.ArrayAllocateStoreRead(variant)
 
-			SymbolicMachineSatTest("memory", "ArrayAllocateStoreRead", args, expected, t)
-			SymbolicMachineUnsatTest("memory", "ArrayAllocateStoreRead", args, expected+1, t)
+			SymbolicMachineSatTest(ctx, args, expected, t)
+			SymbolicMachineUnsatTest(ctx, args, expected+1, t)
 		})
 	}
 }
@@ -59,6 +62,7 @@ func TestArrayAllocateStoreRead(t *testing.T) {
 func TestArrayAllocateStoreReadDynamic(t *testing.T) {
 	argVariants := [][]int{{0, 0}, {1, 2}, {5, 10}, {10, 0}, {10, 10}}
 
+	ctx := PrepareTest("memory", "ArrayAllocateStoreReadDynamic")
 	for _, variant := range argVariants {
 		t.Run(strconv.Itoa(variant[0])+"-"+strconv.Itoa(variant[1]), func(t *testing.T) {
 			args := make(map[string]any)
@@ -67,8 +71,8 @@ func TestArrayAllocateStoreReadDynamic(t *testing.T) {
 
 			expected := testdata.ArrayAllocateStoreReadDynamic(variant[0], variant[1])
 
-			SymbolicMachineSatTest("memory", "ArrayAllocateStoreReadDynamic", args, expected, t)
-			SymbolicMachineUnsatTest("memory", "ArrayAllocateStoreReadDynamic", args, expected+1, t)
+			SymbolicMachineSatTest(ctx, args, expected, t)
+			SymbolicMachineUnsatTest(ctx, args, expected+1, t)
 		})
 	}
 }
@@ -76,9 +80,11 @@ func TestArrayAllocateStoreReadDynamic(t *testing.T) {
 func TestArrayAllocateStoreReadStore(t *testing.T) {
 	args := make(map[string]any)
 
+	ctx := PrepareTest("memory", "ArrayAllocateStoreReadStore")
+
 	expected := testdata.ArrayAllocateStoreReadStore()
 
-	SymbolicMachineSatTest("memory", "ArrayAllocateStoreReadStore", args, expected, t)
-	SymbolicMachineUnsatTest("memory", "ArrayAllocateStoreReadStore", args, expected+1, t)
-	SymbolicMachineUnsatTest("memory", "ArrayAllocateStoreReadStore", args, -1, t)
+	SymbolicMachineSatTest(ctx, args, expected, t)
+	SymbolicMachineUnsatTest(ctx, args, expected+1, t)
+	SymbolicMachineUnsatTest(ctx, args, -1, t)
 }
