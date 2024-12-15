@@ -34,8 +34,8 @@ func Interpret(
 		Float32: GetPrimitiveFloatDescr(z3Context, 8, 24),
 		Float64: GetPrimitiveFloatDescr(z3Context, 11, 53),
 
-		ArrayIndexSort: z3Context.BVSort(64),            // todo: change to int
-		Pointer:        z3Context.BVSort(bits.UintSize), // todo: change to int
+		ArrayIndexSort: z3Context.BVSort(64),
+		Pointer:        z3Context.BVSort(bits.UintSize),
 		UnknownSort:    z3Context.UninterpretedSort("unknown"),
 	}
 
