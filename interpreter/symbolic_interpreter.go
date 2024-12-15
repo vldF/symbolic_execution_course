@@ -129,7 +129,8 @@ func addInitState(function *ssa.Function, ctx *Context) {
 
 	stackFrames := make([]*StackFrame, 0)
 	initialFrame := &StackFrame{
-		Values: map[string]Value{},
+		Initiator: nil,
+		Values:    map[string]Value{},
 	}
 	stackFrames = append(stackFrames, initialFrame)
 
@@ -226,6 +227,8 @@ func visitInstruction(instr ssa.Instruction, prevState *State, ctx *Context) []*
 		return visitIndexAddrInstr(casted, prevState, ctx)
 	case *ssa.MakeSlice:
 		return visitMakeSliceInstr(casted, prevState, ctx)
+	case *ssa.Call:
+		return visitCallInstr(casted, prevState, ctx)
 	}
 
 	//panic("unknown instruction " + instr.String())
@@ -465,17 +468,29 @@ func visitReturn(instr *ssa.Return, state *State, ctx *Context) *State {
 	newState := state.Copy()
 	newState.Statement = instr
 
+	frame := newState.LastStackFrame()
 	returnValue := visitValue(instr.Results[0], newState, ctx)
-	switch castedReturnValue := returnValue.(type) {
-	case *Pointer:
-		newState.Constraints = append(newState.Constraints, ctx.ReturnValue.Eq(castedReturnValue.ptr))
-	default:
-		newState.Constraints = append(newState.Constraints, ctx.ReturnValue.Eq(returnValue))
+	if frame.Initiator == nil {
+		// return from the main function
+		switch castedReturnValue := returnValue.(type) {
+		case *Pointer:
+			newState.Constraints = append(newState.Constraints, ctx.ReturnValue.Eq(castedReturnValue.ptr))
+		default:
+			newState.Constraints = append(newState.Constraints, ctx.ReturnValue.Eq(returnValue))
+		}
+
+		handleDone(newState, ctx)
+
+		return nil
 	}
 
-	handleDone(newState, ctx)
+	// return from the function call
+	newState.Statement = frame.Initiator
+	newState = createPossibleNextStates(newState)[0]
+	newState.PopStackFrame()
+	saveToStack(frame.Initiator.Name(), returnValue, newState)
 
-	return nil
+	return newState
 }
 
 func handleDone(state *State, ctx *Context) {
@@ -494,14 +509,12 @@ func visitValue(val ssa.Value, state *State, ctx *Context) Value {
 	}
 
 	switch casted := val.(type) {
-	case *ssa.Parameter:
-		return visitParameter(casted, state, ctx)
+	//case *ssa.Parameter:
+	//	return visitParameter(casted, state, ctx)
 	case *ssa.Const:
 		return visitConst(casted, ctx)
 	case *ssa.FieldAddr:
 		return visitFieldAddr(casted, state, ctx)
-	case *ssa.Call: // todo: move to instructions
-		return visitCall(casted, state, ctx)
 	case *ssa.IndexAddr:
 		return visitIndexAddr(casted, state, ctx)
 	}
@@ -616,23 +629,44 @@ func getRealAndImagValues(ptr *Pointer, ctx *Context) (ArithmeticValue, Arithmet
 	return realValue.(ArithmeticValue), imagValue.(ArithmeticValue)
 }
 
-func visitCall(call *ssa.Call, state *State, ctx *Context) Value {
+func visitCallInstr(call *ssa.Call, state *State, ctx *Context) []*State {
+	newState := createPossibleNextStates(state)[0]
+
 	switch castedCallValue := call.Call.Value.(type) {
 	case *ssa.Builtin:
 		switch castedCallValue.Name() {
 		case "real":
-			argPtr := visitValue(call.Call.Args[0], state, ctx).(*Pointer)
-			return ctx.Memory.LoadField(argPtr, 0)
+			argPtr := visitValue(call.Call.Args[0], newState, ctx).(*Pointer)
+			saveToStack(call.Name(), ctx.Memory.LoadField(argPtr, 0), newState)
 		case "imag":
-			argPtr := visitValue(call.Call.Args[0], state, ctx).(*Pointer)
-			return ctx.Memory.LoadField(argPtr, 1)
+			argPtr := visitValue(call.Call.Args[0], newState, ctx).(*Pointer)
+			saveToStack(call.Name(), ctx.Memory.LoadField(argPtr, 1), newState)
 		case "len":
-			arrayPtr := visitValue(call.Call.Args[0], state, ctx).(*Pointer)
-			return ctx.Memory.GetArrayLen(arrayPtr)
+			arrayPtr := visitValue(call.Call.Args[0], newState, ctx).(*Pointer)
+			saveToStack(call.Name(), ctx.Memory.GetArrayLen(arrayPtr), newState)
 		}
+	case *ssa.Function:
+		newState = visitFunctionCall(call, newState, ctx)
 	}
 
-	panic("unsupported call")
+	return []*State{newState}
+}
+
+func visitFunctionCall(call *ssa.Call, state *State, ctx *Context) *State {
+	newState := state.Copy()
+	newState.PushStackFrame(call)
+
+	function := call.Call.Value.(*ssa.Function)
+
+	functionArgs := function.Signature.Params()
+	for i := range functionArgs.Len() {
+		arg := functionArgs.At(i)
+		saveToStack(arg.Name(), visitValue(call.Call.Args[i], state, ctx), newState)
+	}
+
+	newState.Statement = function.Blocks[0].Instrs[0]
+
+	return newState
 }
 
 func visitFieldAddr(casted *ssa.FieldAddr, state *State, ctx *Context) Value {
@@ -696,6 +730,15 @@ func visitConst(value *ssa.Const, ctx *Context) Value {
 			return ctx.CreateFloat(value.Float64(), 64)
 		case types.UntypedFloat:
 			return ctx.CreateFloat(value.Float64(), 64)
+
+		case types.Complex128:
+			compx := value.Complex128()
+			bits := ctx.TypesContext.Float64.Bits
+			ptr := ctx.Memory.NewPtr("complex")
+			ctx.Memory.StoreField(ptr, 0, ctx.CreateFloat(real(compx), bits))
+			ctx.Memory.StoreField(ptr, 1, ctx.CreateFloat(imag(compx), bits))
+
+			return ptr
 		}
 	}
 

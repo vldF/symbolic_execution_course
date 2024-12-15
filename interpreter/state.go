@@ -2,7 +2,6 @@ package interpreter
 
 import (
 	"golang.org/x/tools/go/ssa"
-	"slices"
 )
 
 type State struct {
@@ -13,9 +12,9 @@ type State struct {
 	VisitedBasicBlocks []int
 }
 
-// StackFrame todo: save here callstack too
 type StackFrame struct {
-	Values map[string]Value
+	Initiator *ssa.Call
+	Values    map[string]Value
 }
 
 func (frame *StackFrame) copy() *StackFrame {
@@ -25,7 +24,8 @@ func (frame *StackFrame) copy() *StackFrame {
 	}
 
 	return &StackFrame{
-		Values: newValues,
+		Initiator: frame.Initiator,
+		Values:    newValues,
 	}
 }
 
@@ -50,26 +50,26 @@ func (state *State) Copy() *State {
 }
 
 func (state *State) LastStackFrame() *StackFrame {
+	if len(state.StackFrames) == 0 {
+		return nil
+	}
+
 	return state.StackFrames[len(state.StackFrames)-1]
 }
 
 func (state *State) GetValueFromStack(name string) Value {
-	for _, frame := range slices.Backward(state.StackFrames) {
-		if res, ok := frame.Values[name]; ok {
-			return res
-		}
-	}
-
-	return nil
+	return state.LastStackFrame().Values[name]
 }
 
-func (state *State) PushStackFrame() {
+func (state *State) PushStackFrame(initiator *ssa.Call) {
 	newFrame := &StackFrame{
-		Values: make(map[string]Value),
+		Values:    make(map[string]Value),
+		Initiator: initiator,
 	}
+
 	state.StackFrames = append(state.StackFrames, newFrame)
 }
 
 func (state *State) PopStackFrame() {
-	state.StackFrames = state.StackFrames[:len(state.StackFrames)-2] // todo?
+	state.StackFrames = state.StackFrames[:len(state.StackFrames)-1]
 }
