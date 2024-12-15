@@ -19,11 +19,23 @@ func Interpret(
 	z3Context := z3.NewContext(z3Config)
 
 	typesContext := TypesContext{
-		IntBits:        bits.UintSize,
-		IntSort:        z3Context.BVSort(bits.UintSize), // todo: add dedicated sorts for various int sizes
-		ArrayIndexSort: z3Context.BVSort(64),
-		FloatSort:      z3Context.FloatSort(11, 53),
-		Pointer:        z3Context.BVSort(bits.UintSize),
+		Int:    GetPrimitiveIntDescr(z3Context, true, bits.UintSize),
+		Int8:   GetPrimitiveIntDescr(z3Context, true, 8),
+		Int16:  GetPrimitiveIntDescr(z3Context, true, 16),
+		Int32:  GetPrimitiveIntDescr(z3Context, true, 32),
+		Int64:  GetPrimitiveIntDescr(z3Context, true, 64),
+		UInt:   GetPrimitiveIntDescr(z3Context, false, bits.UintSize),
+		UInt8:  GetPrimitiveIntDescr(z3Context, false, 8),
+		UInt16: GetPrimitiveIntDescr(z3Context, false, 16),
+		UInt32: GetPrimitiveIntDescr(z3Context, false, 32),
+		UInt64: GetPrimitiveIntDescr(z3Context, false, 64),
+
+		Float:   GetPrimitiveFloatDescr(z3Context, 8, 24),
+		Float32: GetPrimitiveFloatDescr(z3Context, 8, 24),
+		Float64: GetPrimitiveFloatDescr(z3Context, 11, 53),
+
+		ArrayIndexSort: z3Context.BVSort(64),            // todo: change to int
+		Pointer:        z3Context.BVSort(bits.UintSize), // todo: change to int
 		UnknownSort:    z3Context.UninterpretedSort("unknown"),
 	}
 
@@ -48,11 +60,7 @@ func Interpret(
 		structures:  make(map[sortPtr]*StructureDescriptor),
 	}
 
-	ret := getReturnConst(function, &context)
-	context.ReturnValue = &Z3Value{
-		&context,
-		ret,
-	}
+	context.ReturnValue = getReturnConst(function, &context)
 
 	addInitState(function, &context)
 
@@ -86,20 +94,30 @@ func processState(state *State, ctx *Context) {
 	}
 }
 
-func getReturnConst(function *ssa.Function, ctx *Context) z3.Value {
+func getReturnConst(function *ssa.Function, ctx *Context) Value {
+	var resSort z3.Sort
+	var resBits int
+
 	switch t := function.Signature.Results().At(0).Type().(type) {
 	case *types.Basic:
 		switch t.Kind() {
-		case types.Int, types.Int64, types.Int16, types.Int32, types.Int8:
-			return ctx.Z3Context.FreshConst("return", ctx.TypesContext.IntSort)
-		case types.Float64, types.Float32:
-			return ctx.Z3Context.FreshConst("return", ctx.TypesContext.FloatSort)
 		case types.UntypedComplex, types.Complex64, types.Complex128:
-			return ctx.Z3Context.FreshConst("return", ctx.TypesContext.Pointer)
+			resSort = ctx.TypesContext.Pointer
+			resBits = 64
+		default:
+			resSort = *ctx.TypesContext.GetPrimitiveTypeSortOrNil(t.Name())
+			resBits = ctx.TypesContext.GetPrimitiveTypeBits(t.Name())
 		}
+	default:
+		panic("unsupported type")
 	}
 
-	panic("unsupported type")
+	c := ctx.Z3Context.FreshConst("return", resSort)
+	return &Z3Value{
+		ctx,
+		c,
+		resBits,
+	}
 }
 
 func addInitState(function *ssa.Function, ctx *Context) {
@@ -135,9 +153,11 @@ func addInitState(function *ssa.Function, ctx *Context) {
 				ptr := ctx.Memory.NewPtr(typeName)
 				initialFrame.Values[name] = ptr
 			default:
+				bits := ctx.TypesContext.GetPrimitiveTypeBits(casted.String())
 				val := Z3Value{
 					Context: ctx,
 					Value:   ctx.Z3Context.Const(name, sort),
+					Bits:    bits,
 				}
 
 				initialFrame.Values[name] = &val
@@ -280,10 +300,21 @@ func visitConvertInstr(casted *ssa.Convert, state *State, ctx *Context) []*State
 	switch tpe := casted.Type().(type) {
 	case *types.Basic:
 		switch tpe.Kind() {
-		case types.Int, types.Int64, types.Int16, types.Int32, types.Int8, types.UntypedInt:
-			result = value.(ArithmeticValue).AsInt()
-		case types.Float64, types.Float32, types.UntypedFloat:
-			result = value.(ArithmeticValue).AsFloat()
+		case types.Int:
+			result = value.(ArithmeticValue).AsInt(ctx.TypesContext.Int.Bits)
+		case types.Int8:
+			result = value.(ArithmeticValue).AsInt(8)
+		case types.Int16:
+			result = value.(ArithmeticValue).AsInt(16)
+		case types.Int32:
+			result = value.(ArithmeticValue).AsInt(32)
+		case types.Int64:
+			result = value.(ArithmeticValue).AsInt(64)
+
+		case types.Float32:
+			result = value.(ArithmeticValue).AsFloat(32)
+		case types.Float64:
+			result = value.(ArithmeticValue).AsFloat(64)
 		}
 	default:
 		panic("Unsupported cast" + casted.String())
@@ -530,11 +561,13 @@ func visitComplexBinOp(expr *ssa.BinOp, state *State, ctx *Context) Value {
 			realComponent := &Z3Value{
 				Context: ctx,
 				Value:   realComponentSymb,
+				Bits:    ctx.TypesContext.Float64.Bits,
 			}
 
 			imagComponent := &Z3Value{
 				Context: ctx,
 				Value:   imagComponentSymb,
+				Bits:    ctx.TypesContext.Float64.Bits,
 			}
 
 			return realComponent, imagComponent
@@ -634,17 +667,35 @@ func visitConst(value *ssa.Const, ctx *Context) Value {
 	switch casted := value.Type().(type) {
 	case *types.Basic:
 		switch casted.Kind() {
-		case types.Int, types.Int64, types.Int16, types.Int32, types.Int8,
-			types.UntypedInt, types.Uint, types.Uint8, types.Uint16, types.Uint32:
-			return &ConcreteIntValue{
-				ctx,
-				value.Int64(),
-			}
-		case types.Float64, types.Float32, types.UntypedFloat:
-			return &ConcreteFloatValue{
-				ctx,
-				value.Float64(),
-			}
+		case types.Int:
+			return ctx.CreateInt(value.Int64(), ctx.TypesContext.Int.Bits)
+		case types.Int8:
+			return ctx.CreateInt(value.Int64(), 8)
+		case types.Int16:
+			return ctx.CreateInt(value.Int64(), 16)
+		case types.Int32:
+			return ctx.CreateInt(value.Int64(), 32)
+		case types.Int64:
+			return ctx.CreateInt(value.Int64(), 64)
+		case types.Uint:
+			return ctx.CreateInt(value.Int64(), ctx.TypesContext.UInt.Bits)
+		case types.Uint8:
+			return ctx.CreateInt(value.Int64(), 8)
+		case types.Uint16:
+			return ctx.CreateInt(value.Int64(), 16)
+		case types.Uint32:
+			return ctx.CreateInt(value.Int64(), 32)
+		case types.Uint64:
+			return ctx.CreateInt(value.Int64(), 64)
+		case types.UntypedInt:
+			return ctx.CreateInt(value.Int64(), ctx.TypesContext.Int.Bits)
+
+		case types.Float32:
+			return ctx.CreateFloat(value.Float64(), 32)
+		case types.Float64:
+			return ctx.CreateFloat(value.Float64(), 64)
+		case types.UntypedFloat:
+			return ctx.CreateFloat(value.Float64(), 64)
 		}
 	}
 

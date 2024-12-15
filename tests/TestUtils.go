@@ -5,6 +5,7 @@ import (
 	"github.com/aclements/go-z3/z3"
 	"io"
 	"os"
+	"reflect"
 	"symbolic_execution_course/interpreter"
 	"symbolic_execution_course/ssa"
 	"testing"
@@ -125,7 +126,7 @@ func addArgs(args map[string]any, state *interpreter.State, solver *z3.Solver, c
 
 			for fieldIdx, expectedVal := range argCasted.fields {
 				actualVal := ctx.Memory.LoadField(actualArgPtr, fieldIdx)
-				expectedZ3Val := ctx.GoToZ3Value(expectedVal)
+				expectedZ3Val := GoToZ3Value(ctx, expectedVal)
 				solver.Assert(actualVal.Eq(&expectedZ3Val).AsZ3Value().Value.(z3.Bool))
 			}
 
@@ -133,9 +134,9 @@ func addArgs(args map[string]any, state *interpreter.State, solver *z3.Solver, c
 		case complex128:
 			argPtr := initialStackFrame.Values[argName].(*interpreter.Pointer)
 			r := real(argCasted)
-			expectedRealValue := ctx.GoToZ3Value(r)
+			expectedRealValue := GoToZ3Value(ctx, r)
 			i := imag(argCasted)
-			expectedImagValue := ctx.GoToZ3Value(i)
+			expectedImagValue := GoToZ3Value(ctx, i)
 
 			actualRealValue := ctx.Memory.LoadField(argPtr, 0)
 			actualImagValue := ctx.Memory.LoadField(argPtr, 1)
@@ -146,20 +147,20 @@ func addArgs(args map[string]any, state *interpreter.State, solver *z3.Solver, c
 		case ArrayArg:
 			argPtr := initialStackFrame.Values[argName].(*interpreter.Pointer)
 			for idx, element := range argCasted.elements {
-				idxValue := ctx.GoToZ3Value(idx)
+				idxValue := GoToZ3Value(ctx, idx)
 				valueInMemory := ctx.Memory.LoadByArrayIndex(argPtr, &idxValue)
-				expectedValue := ctx.GoToZ3Value(element)
+				expectedValue := GoToZ3Value(ctx, element)
 				solver.Assert(valueInMemory.Eq(&expectedValue).AsZ3Value().Value.(z3.Bool))
 			}
 
 			actualLenValue := ctx.Memory.GetArrayLen(argPtr)
-			expectedLenValue := ctx.GoToZ3Value(len(argCasted.elements))
+			expectedLenValue := GoToZ3Value(ctx, len(argCasted.elements))
 			solver.Assert(actualLenValue.Eq(&expectedLenValue).AsZ3Value().Value.(z3.Bool))
 			continue
 		}
 
 		argConst := initialStackFrame.Values[argName]
-		z3Value := ctx.GoToZ3Value(argValue)
+		z3Value := GoToZ3Value(ctx, argValue)
 		constraint := argConst.Eq(&z3Value).AsZ3Value().Value.(z3.Bool)
 
 		res = append(res, constraint)
@@ -183,10 +184,10 @@ func addResultConstraint(solver *z3.Solver, expectedResult any, ctx *interpreter
 		resultPtrValue := ctx.ReturnValue
 
 		r := real(argCasted)
-		expectedRealValue := ctx.GoToZ3Value(r)
+		expectedRealValue := GoToZ3Value(ctx, r)
 
 		i := imag(argCasted)
-		expectedImagValue := ctx.GoToZ3Value(i)
+		expectedImagValue := GoToZ3Value(ctx, i)
 
 		actualRealValuePtr := ctx.Memory.GetUnsafePointerToField(resultPtrValue, 0, "complex")
 		actualRealValue := ctx.Memory.Load(actualRealValuePtr)
@@ -196,7 +197,7 @@ func addResultConstraint(solver *z3.Solver, expectedResult any, ctx *interpreter
 		solver.Assert(expectedImagValue.Eq(actualImagValue).AsZ3Value().Value.(z3.Bool))
 		solver.Assert(expectedRealValue.Eq(actualRealValue).AsZ3Value().Value.(z3.Bool))
 	default:
-		value := ctx.GoToZ3Value(expectedResult)
+		value := GoToZ3Value(ctx, expectedResult)
 		solver.Assert(ctx.ReturnValue.Eq(&value).AsZ3Value().Value.(z3.Bool))
 	}
 }
@@ -207,4 +208,36 @@ type StructArg struct {
 
 type ArrayArg struct {
 	elements []any
+}
+
+func GoToZ3Value(ctx *interpreter.Context, v any) interpreter.Z3Value {
+	switch casted := v.(type) {
+	case int, int64, int32, int16, int8, uint, uint64, uint32, uint16, uint8:
+		sort := ctx.TypesContext.GetPrimitiveTypeSortOrNil(reflect.TypeOf(v).String())
+		bits := ctx.TypesContext.GetPrimitiveTypeBits(reflect.TypeOf(v).String())
+		bv := ctx.Z3Context.FromInt(int64(casted.(int)), *sort).(z3.BV)
+		return interpreter.Z3Value{
+			Context: ctx,
+			Value:   bv,
+			Bits:    bits,
+		}
+	case float64, float32:
+		sort := ctx.TypesContext.GetPrimitiveTypeSortOrNil(reflect.TypeOf(v).String())
+		bits := ctx.TypesContext.GetPrimitiveTypeBits(reflect.TypeOf(v).String())
+		float := ctx.Z3Context.FromFloat64(casted.(float64), *sort)
+		return interpreter.Z3Value{
+			Context: ctx,
+			Value:   float,
+			Bits:    bits,
+		}
+	case bool:
+		b := ctx.Z3Context.FromBool(casted)
+		return interpreter.Z3Value{
+			Context: ctx,
+			Value:   b,
+			Bits:    1,
+		}
+	default:
+		panic("unsupported argument")
+	}
 }

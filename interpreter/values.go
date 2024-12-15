@@ -5,10 +5,6 @@ import (
 	"github.com/aclements/go-z3/z3"
 )
 
-func (left *ConcreteBoolValue) String() string {
-	return fmt.Sprintf("ConcreteBoolValue(%v)", left.Value)
-}
-
 type Value interface {
 	AsZ3Value() Z3Value
 
@@ -39,12 +35,12 @@ type ArithmeticValue interface {
 	Eq(Value) BoolValue
 	NotEq(Value) BoolValue
 
-	AsInt() Value
-	AsFloat() Value
+	AsInt(bits int) Value
+	AsFloat(bits int) Value
 	AsBool() Value
 
 	asZ3IntValue() z3.BV
-	asZ3FloatValue() z3.Float
+	asZ3FloatValue(bits int) z3.Float
 
 	IsBool() bool
 	IsFloat() bool
@@ -87,25 +83,35 @@ type BoolValue interface {
 	Not() BoolValue
 }
 
-type ConcreteValue[V int64 | bool | float64] struct {
+type ConcreteIntValue struct {
 	Context *Context
-	Value   V
+	Value   int64
+	bits    int
 }
 
-type ConcreteIntValue ConcreteValue[int64]
-type ConcreteFloatValue ConcreteValue[float64]
+type ConcreteFloatValue struct {
+	Context *Context
+	Value   float64
+	bits    int
+}
+
+type ConcreteBoolValue struct {
+	Context *Context
+	Value   bool
+}
 
 func (left *ConcreteBoolValue) BoolAnd(value BoolValue) BoolValue {
 	switch casterRight := value.(type) {
 	case *ConcreteBoolValue:
 		return &ConcreteBoolValue{
-			left.Context,
-			left.Value && casterRight.Value,
+			Context: left.Context,
+			Value:   left.Value && casterRight.Value,
 		}
 	case *Z3Value:
 		return &Z3Value{
 			left.Context,
 			left.AsZ3Value().Value.(z3.Bool).And(casterRight.Value.(z3.Bool)),
+			1,
 		}
 	}
 
@@ -123,14 +129,23 @@ func (left *ConcreteBoolValue) BoolOr(value BoolValue) BoolValue {
 		return &Z3Value{
 			left.Context,
 			left.AsZ3Value().Value.(z3.Bool).Or(casterRight.Value.(z3.Bool)),
+			1,
 		}
 	}
 
 	panic("unsupported")
 }
 
-func (left *ConcreteValue[T]) String() string {
-	return fmt.Sprintf("ConcretValue(%v)", left.Value)
+func (left *ConcreteIntValue) String() string {
+	return fmt.Sprintf("ConcretIntValue(%v)", left.Value)
+}
+
+func (left *ConcreteFloatValue) String() string {
+	return fmt.Sprintf("ConcretFloatValue(%v)", left.Value)
+}
+
+func (left *ConcreteBoolValue) String() string {
+	return fmt.Sprintf("ConcretBoolValue(%v)", left.Value)
 }
 
 func (left *ConcreteIntValue) Add(v ArithmeticValue) ArithmeticValue {
@@ -138,20 +153,28 @@ func (left *ConcreteIntValue) Add(v ArithmeticValue) ArithmeticValue {
 		left, v,
 
 		func(left *Z3Value, right *Z3Value) ArithmeticValue {
-			return &Z3Value{left.Context, left.Value.(z3.BV).Add(right.Value.(z3.BV))}
+			return &Z3Value{
+				left.Context,
+				left.Value.(z3.BV).Add(right.Value.(z3.BV)),
+				left.Bits,
+			}
 		},
 		func(left *Z3Value, right *Z3Value) ArithmeticValue {
-			return &Z3Value{left.Context, left.Value.(z3.Float).Add(right.Value.(z3.Float))}
+			return &Z3Value{
+				left.Context,
+				left.Value.(z3.Float).Add(right.Value.(z3.Float)),
+				left.Bits,
+			}
 		},
 		func(*Z3Value, *Z3Value) ArithmeticValue {
 			panic("unsupported")
 		},
 
 		func(left *ConcreteIntValue, right *ConcreteIntValue) ArithmeticValue {
-			return &ConcreteIntValue{left.Context, left.Value + right.Value}
+			return left.Context.CreateInt(left.Value+right.Value, max(left.bits, right.bits))
 		},
 		func(left *ConcreteFloatValue, right *ConcreteFloatValue) ArithmeticValue {
-			return &ConcreteFloatValue{left.Context, left.Value + right.Value}
+			return left.Context.CreateFloat(left.Value+right.Value, max(left.bits, right.bits))
 		},
 
 		func(left *ConcreteBoolValue, right *ConcreteBoolValue) ArithmeticValue {
@@ -165,20 +188,28 @@ func (left *ConcreteIntValue) Sub(v ArithmeticValue) ArithmeticValue {
 		left, v,
 
 		func(left *Z3Value, right *Z3Value) ArithmeticValue {
-			return &Z3Value{left.Context, left.Value.(z3.BV).Sub(right.Value.(z3.BV))}
+			return &Z3Value{
+				left.Context,
+				left.Value.(z3.BV).Sub(right.Value.(z3.BV)),
+				left.Bits,
+			}
 		},
 		func(left *Z3Value, right *Z3Value) ArithmeticValue {
-			return &Z3Value{left.Context, left.Value.(z3.Float).Sub(right.Value.(z3.Float))}
+			return &Z3Value{
+				left.Context,
+				left.Value.(z3.Float).Sub(right.Value.(z3.Float)),
+				left.Bits,
+			}
 		},
 		func(*Z3Value, *Z3Value) ArithmeticValue {
 			panic("unsupported")
 		},
 
 		func(left *ConcreteIntValue, right *ConcreteIntValue) ArithmeticValue {
-			return &ConcreteIntValue{left.Context, left.Value - right.Value}
+			return left.Context.CreateInt(left.Value-right.Value, max(left.bits, right.bits))
 		},
 		func(left *ConcreteFloatValue, right *ConcreteFloatValue) ArithmeticValue {
-			return &ConcreteFloatValue{left.Context, left.Value - right.Value}
+			return left.Context.CreateFloat(left.Value-right.Value, max(left.bits, right.bits))
 		},
 		func(left *ConcreteBoolValue, right *ConcreteBoolValue) ArithmeticValue {
 			panic("unsupported")
@@ -191,20 +222,28 @@ func (left *ConcreteIntValue) Mul(v ArithmeticValue) ArithmeticValue {
 		left, v,
 
 		func(left *Z3Value, right *Z3Value) ArithmeticValue {
-			return &Z3Value{left.Context, left.Value.(z3.BV).Mul(right.Value.(z3.BV))}
+			return &Z3Value{
+				left.Context,
+				left.Value.(z3.BV).Mul(right.Value.(z3.BV)),
+				left.Bits,
+			}
 		},
 		func(left *Z3Value, right *Z3Value) ArithmeticValue {
-			return &Z3Value{left.Context, left.Value.(z3.Float).Mul(right.Value.(z3.Float))}
+			return &Z3Value{
+				left.Context,
+				left.Value.(z3.Float).Mul(right.Value.(z3.Float)),
+				left.Bits,
+			}
 		},
 		func(*Z3Value, *Z3Value) ArithmeticValue {
 			panic("unsupported")
 		},
 
 		func(left *ConcreteIntValue, right *ConcreteIntValue) ArithmeticValue {
-			return &ConcreteIntValue{left.Context, left.Value * right.Value}
+			return left.Context.CreateInt(left.Value*right.Value, max(left.bits, right.bits))
 		},
 		func(left *ConcreteFloatValue, right *ConcreteFloatValue) ArithmeticValue {
-			return &ConcreteFloatValue{left.Context, left.Value * right.Value}
+			return left.Context.CreateFloat(left.Value-right.Value, max(left.bits, right.bits))
 		},
 		func(left *ConcreteBoolValue, right *ConcreteBoolValue) ArithmeticValue {
 			panic("unsupported")
@@ -217,20 +256,28 @@ func (left *ConcreteIntValue) Div(v ArithmeticValue) ArithmeticValue {
 		left, v,
 
 		func(left *Z3Value, right *Z3Value) ArithmeticValue {
-			return &Z3Value{left.Context, left.Value.(z3.BV).SDiv(right.Value.(z3.BV))}
+			return &Z3Value{
+				left.Context,
+				left.Value.(z3.BV).SDiv(right.Value.(z3.BV)),
+				left.Bits,
+			}
 		},
 		func(left *Z3Value, right *Z3Value) ArithmeticValue {
-			return &Z3Value{left.Context, left.Value.(z3.Float).Div(right.Value.(z3.Float))}
+			return &Z3Value{
+				left.Context,
+				left.Value.(z3.Float).Div(right.Value.(z3.Float)),
+				left.Bits,
+			}
 		},
 		func(*Z3Value, *Z3Value) ArithmeticValue {
 			panic("unsupported")
 		},
 
 		func(left *ConcreteIntValue, right *ConcreteIntValue) ArithmeticValue {
-			return &ConcreteIntValue{left.Context, left.Value / right.Value}
+			return left.Context.CreateInt(left.Value/right.Value, max(left.bits, right.bits))
 		},
 		func(left *ConcreteFloatValue, right *ConcreteFloatValue) ArithmeticValue {
-			return &ConcreteFloatValue{left.Context, left.Value / right.Value}
+			return left.Context.CreateFloat(left.Value/right.Value, max(left.bits, right.bits))
 		},
 		func(left *ConcreteBoolValue, right *ConcreteBoolValue) ArithmeticValue {
 			panic("unsupported")
@@ -243,20 +290,28 @@ func (left *ConcreteFloatValue) Add(v ArithmeticValue) ArithmeticValue {
 		left, v,
 
 		func(left *Z3Value, right *Z3Value) ArithmeticValue {
-			return &Z3Value{left.Context, left.Value.(z3.BV).Add(right.Value.(z3.BV))}
+			return &Z3Value{
+				left.Context,
+				left.Value.(z3.BV).Add(right.Value.(z3.BV)),
+				left.Bits,
+			}
 		},
 		func(left *Z3Value, right *Z3Value) ArithmeticValue {
-			return &Z3Value{left.Context, left.Value.(z3.Float).Add(right.Value.(z3.Float))}
+			return &Z3Value{
+				left.Context,
+				left.Value.(z3.Float).Add(right.Value.(z3.Float)),
+				left.Bits,
+			}
 		},
 		func(*Z3Value, *Z3Value) ArithmeticValue {
 			panic("unsupported")
 		},
 
 		func(left *ConcreteIntValue, right *ConcreteIntValue) ArithmeticValue {
-			return &ConcreteIntValue{left.Context, left.Value + right.Value}
+			return left.Context.CreateInt(left.Value+right.Value, max(left.bits, right.bits))
 		},
 		func(left *ConcreteFloatValue, right *ConcreteFloatValue) ArithmeticValue {
-			return &ConcreteFloatValue{left.Context, left.Value + right.Value}
+			return left.Context.CreateFloat(left.Value+right.Value, max(left.bits, right.bits))
 		},
 		func(left *ConcreteBoolValue, right *ConcreteBoolValue) ArithmeticValue {
 			panic("unsupported")
@@ -269,20 +324,28 @@ func (left *ConcreteFloatValue) Sub(v ArithmeticValue) ArithmeticValue {
 		left, v,
 
 		func(left *Z3Value, right *Z3Value) ArithmeticValue {
-			return &Z3Value{left.Context, left.Value.(z3.BV).Sub(right.Value.(z3.BV))}
+			return &Z3Value{
+				left.Context,
+				left.Value.(z3.BV).Sub(right.Value.(z3.BV)),
+				left.Bits,
+			}
 		},
 		func(left *Z3Value, right *Z3Value) ArithmeticValue {
-			return &Z3Value{left.Context, left.Value.(z3.Float).Sub(right.Value.(z3.Float))}
+			return &Z3Value{
+				left.Context,
+				left.Value.(z3.Float).Sub(right.Value.(z3.Float)),
+				left.Bits,
+			}
 		},
 		func(*Z3Value, *Z3Value) ArithmeticValue {
 			panic("unsupported")
 		},
 
 		func(left *ConcreteIntValue, right *ConcreteIntValue) ArithmeticValue {
-			return &ConcreteIntValue{left.Context, left.Value - right.Value}
+			return left.Context.CreateInt(left.Value-right.Value, max(left.bits, right.bits))
 		},
 		func(left *ConcreteFloatValue, right *ConcreteFloatValue) ArithmeticValue {
-			return &ConcreteFloatValue{left.Context, left.Value - right.Value}
+			return left.Context.CreateFloat(left.Value-right.Value, max(left.bits, right.bits))
 		},
 		func(left *ConcreteBoolValue, right *ConcreteBoolValue) ArithmeticValue {
 			panic("unsupported")
@@ -295,20 +358,28 @@ func (left *ConcreteFloatValue) Mul(v ArithmeticValue) ArithmeticValue {
 		left, v,
 
 		func(left *Z3Value, right *Z3Value) ArithmeticValue {
-			return &Z3Value{left.Context, left.Value.(z3.BV).Mul(right.Value.(z3.BV))}
+			return &Z3Value{
+				left.Context,
+				left.Value.(z3.BV).Mul(right.Value.(z3.BV)),
+				left.Bits,
+			}
 		},
 		func(left *Z3Value, right *Z3Value) ArithmeticValue {
-			return &Z3Value{left.Context, left.Value.(z3.Float).Mul(right.Value.(z3.Float))}
+			return &Z3Value{
+				left.Context,
+				left.Value.(z3.Float).Mul(right.Value.(z3.Float)),
+				left.Bits,
+			}
 		},
 		func(*Z3Value, *Z3Value) ArithmeticValue {
 			panic("unsupported")
 		},
 
 		func(left *ConcreteIntValue, right *ConcreteIntValue) ArithmeticValue {
-			return &ConcreteIntValue{left.Context, left.Value * right.Value}
+			return left.Context.CreateInt(left.Value*right.Value, max(left.bits, right.bits))
 		},
 		func(left *ConcreteFloatValue, right *ConcreteFloatValue) ArithmeticValue {
-			return &ConcreteFloatValue{left.Context, left.Value * right.Value}
+			return left.Context.CreateFloat(left.Value*right.Value, max(left.bits, right.bits))
 		},
 		func(left *ConcreteBoolValue, right *ConcreteBoolValue) ArithmeticValue {
 			panic("unsupported")
@@ -321,20 +392,28 @@ func (left *ConcreteFloatValue) Div(v ArithmeticValue) ArithmeticValue {
 		left, v,
 
 		func(left *Z3Value, right *Z3Value) ArithmeticValue {
-			return &Z3Value{left.Context, left.Value.(z3.BV).SDiv(right.Value.(z3.BV))}
+			return &Z3Value{
+				left.Context,
+				left.Value.(z3.BV).SDiv(right.Value.(z3.BV)),
+				left.Bits,
+			}
 		},
 		func(left *Z3Value, right *Z3Value) ArithmeticValue {
-			return &Z3Value{left.Context, left.Value.(z3.Float).Div(right.Value.(z3.Float))}
+			return &Z3Value{
+				left.Context,
+				left.Value.(z3.Float).Div(right.Value.(z3.Float)),
+				left.Bits,
+			}
 		},
 		func(*Z3Value, *Z3Value) ArithmeticValue {
 			panic("unsupported")
 		},
 
 		func(left *ConcreteIntValue, right *ConcreteIntValue) ArithmeticValue {
-			return &ConcreteIntValue{left.Context, left.Value / right.Value}
+			return left.Context.CreateInt(left.Value/right.Value, max(left.bits, right.bits))
 		},
 		func(left *ConcreteFloatValue, right *ConcreteFloatValue) ArithmeticValue {
-			return &ConcreteFloatValue{left.Context, left.Value / right.Value}
+			return left.Context.CreateFloat(left.Value/right.Value, max(left.bits, right.bits))
 		},
 		func(left *ConcreteBoolValue, right *ConcreteBoolValue) ArithmeticValue {
 			panic("unsupported")
@@ -359,11 +438,11 @@ func numericValueBinop[T any](
 		case *ConcreteIntValue:
 			return intConcreteValueOp(castedLeft, castedRight)
 		case *ConcreteFloatValue:
-			return floatConcreteValueOp(castedLeft.toFloat(), castedRight)
+			return floatConcreteValueOp(castedLeft.toFloat(castedRight.bits), castedRight)
 		case *Z3Value:
 			switch {
 			case castedRight.IsFloat():
-				leftNew := castedLeft.toFloat().AsZ3Value()
+				leftNew := castedLeft.toFloat(castedLeft.bits).AsZ3Value()
 				return floatZ3ValueOp(&leftNew, castedRight)
 			case castedRight.IsInteger():
 				leftNew := castedLeft.AsZ3Value()
@@ -377,7 +456,7 @@ func numericValueBinop[T any](
 	case *ConcreteFloatValue:
 		switch castedRight := right.(type) {
 		case *ConcreteIntValue:
-			return floatConcreteValueOp(castedLeft, castedRight.toFloat())
+			return floatConcreteValueOp(castedLeft, castedRight.toFloat(castedLeft.bits))
 		case *ConcreteFloatValue:
 			return floatConcreteValueOp(castedLeft, castedRight)
 		case *Z3Value:
@@ -413,14 +492,14 @@ func numericValueBinop[T any](
 			case castedLeft.IsInteger() && castedRight.IsInteger():
 				return intZ3ValueOp(castedLeft, castedRight)
 			case castedLeft.IsInteger() && castedRight.IsFloat():
-				leftNew := castedLeft.AsFloat().AsZ3Value()
+				leftNew := castedLeft.AsFloat(64).AsZ3Value()
 				return floatZ3ValueOp(&leftNew, castedRight)
 			case castedLeft.IsFloat() && castedRight.IsInteger():
-				rightNew := castedLeft.AsFloat().AsZ3Value()
+				rightNew := castedLeft.AsFloat(64).AsZ3Value()
 				return floatZ3ValueOp(castedLeft, &rightNew)
 			case castedLeft.IsFloat() && castedRight.IsFloat():
-				leftNew := castedLeft.AsFloat().AsZ3Value()
-				rightNew := castedRight.AsFloat().AsZ3Value()
+				leftNew := castedLeft.AsFloat(64).AsZ3Value()
+				rightNew := castedRight.AsFloat(64).AsZ3Value()
 				return floatZ3ValueOp(&leftNew, &rightNew)
 			case castedLeft.IsBool() && castedRight.IsBool():
 				leftNew := castedLeft.AsBool().AsZ3Value()
@@ -440,26 +519,26 @@ func numericValueBinop[T any](
 func (left *ConcreteIntValue) Shl(right ArithmeticValue) ArithmeticValue {
 	switch castedRight := right.(type) {
 	case *ConcreteIntValue:
-		return &ConcreteIntValue{
-			left.Context,
-			left.Value << castedRight.Value}
+		return left.Context.CreateInt(left.Value<<castedRight.Value, left.bits)
 	case *Z3Value:
 		return &Z3Value{
 			left.Context,
-			left.AsZ3Value().Value.(z3.BV).Lsh(castedRight.Value.(z3.BV))}
+			left.AsZ3Value().Value.(z3.BV).Lsh(castedRight.Value.(z3.BV)),
+			left.bits,
+		}
 	}
 	panic("unreachable")
 }
 func (left *ConcreteIntValue) Shr(right ArithmeticValue) ArithmeticValue {
 	switch castedRight := right.(type) {
 	case *ConcreteIntValue:
-		return &ConcreteIntValue{
-			left.Context,
-			left.Value >> castedRight.Value}
+		return left.Context.CreateInt(left.Value>>castedRight.Value, left.bits)
 	case *Z3Value:
 		return &Z3Value{
 			left.Context,
-			left.AsZ3Value().Value.(z3.BV).URsh(castedRight.Value.(z3.BV))}
+			left.AsZ3Value().Value.(z3.BV).URsh(castedRight.Value.(z3.BV)),
+			left.bits,
+		}
 	}
 	panic("unreachable")
 }
@@ -477,11 +556,13 @@ func (left *Z3Value) Shl(right ArithmeticValue) ArithmeticValue {
 		return &Z3Value{
 			left.Context,
 			left.Value.(z3.BV).Lsh(castedRight.Value.(z3.BV)),
+			left.Bits,
 		}
 	case ArithmeticValue:
 		return &Z3Value{
 			left.Context,
 			left.Value.(z3.BV).Lsh(castedRight.asZ3IntValue()),
+			left.Bits,
 		}
 	}
 
@@ -494,36 +575,21 @@ func (left *Z3Value) Shr(right ArithmeticValue) ArithmeticValue {
 		return &Z3Value{
 			left.Context,
 			left.Value.(z3.BV).SRsh(castedRight.Value.(z3.BV)),
+			left.Bits,
 		}
 	case ArithmeticValue:
 		return &Z3Value{
 			left.Context,
 			left.Value.(z3.BV).SRsh(castedRight.asZ3IntValue()),
+			left.Bits,
 		}
 	}
 
 	panic("unreachable")
 }
 
-func (left *ConcreteIntValue) toFloat() *ConcreteFloatValue {
-	return &ConcreteFloatValue{
-		left.Context,
-		float64(left.Value),
-	}
-}
-
-func (left *Z3Value) toFloat() *Z3Value {
-	return &Z3Value{
-		left.Context,
-		left.asZ3FloatValue(),
-	}
-}
-
-func (left *ConcreteFloatValue) toInt() *ConcreteIntValue {
-	return &ConcreteIntValue{
-		left.Context,
-		int64(left.Value),
-	}
+func (left *ConcreteIntValue) toFloat(bits int) *ConcreteFloatValue {
+	return left.Context.CreateFloat(float64(left.Value), bits)
 }
 
 func (left *ConcreteIntValue) AsZ3Value() Z3Value {
@@ -531,7 +597,8 @@ func (left *ConcreteIntValue) AsZ3Value() Z3Value {
 		left.Context,
 		left.Context.Z3Context.FromInt(
 			left.Value,
-			left.Context.TypesContext.IntSort).(z3.BV),
+			*left.Context.TypesContext.GetIntSort(left.bits)),
+		left.bits,
 	}
 }
 
@@ -540,33 +607,42 @@ func (left *ConcreteFloatValue) AsZ3Value() Z3Value {
 		left.Context,
 		left.Context.Z3Context.FromFloat64(
 			left.Value,
-			left.Context.TypesContext.FloatSort),
+			*left.Context.TypesContext.GetFloatSort(left.bits)),
+		left.bits,
 	}
 }
-
-type ConcreteBoolValue ConcreteValue[bool]
 
 type Z3Value struct {
 	Context *Context
 	Value   z3.Value
+	Bits    int
 }
 
 func (left *ConcreteIntValue) asZ3IntValue() z3.BV {
-	return left.Context.Z3Context.FromInt(left.Value, left.Context.TypesContext.IntSort).(z3.BV)
+	return left.Context.Z3Context.FromInt(
+		left.Value,
+		*left.Context.TypesContext.GetIntSort(left.bits)).(z3.BV)
 }
 
 func (left *ConcreteFloatValue) asZ3IntValue() z3.BV {
-	return left.Context.Z3Context.FromFloat64(left.Value, left.Context.TypesContext.FloatSort).ToReal().ToInt().
-		ToBV(left.Context.TypesContext.IntBits)
+	return left.Context.Z3Context.FromFloat64(
+		left.Value,
+		*left.Context.TypesContext.GetFloatSort(left.bits)).
+		ToReal().
+		ToInt().
+		ToBV(left.Context.TypesContext.Int.Bits)
 }
 
-func (left *ConcreteIntValue) asZ3FloatValue() z3.Float {
-	return left.Context.Z3Context.FromInt(left.Value, left.Context.TypesContext.IntSort).(z3.Int).ToReal().
-		ToFloat(left.Context.TypesContext.FloatSort)
+func (left *ConcreteIntValue) asZ3FloatValue(bits int) z3.Float {
+	return left.Context.Z3Context.FromInt(
+		left.Value,
+		*left.Context.TypesContext.GetIntSort(bits)).(z3.Int).
+		ToReal().
+		ToFloat(left.Context.TypesContext.Float64.Sort)
 }
 
-func (left *ConcreteFloatValue) asZ3FloatValue() z3.Float {
-	return left.Context.Z3Context.FromFloat64(left.Value, left.Context.TypesContext.FloatSort)
+func (left *ConcreteFloatValue) asZ3FloatValue(bits int) z3.Float {
+	return left.Context.Z3Context.FromFloat64(left.Value, *left.Context.TypesContext.GetFloatSort(bits))
 }
 
 func (left *ConcreteIntValue) IsInteger() bool {
@@ -618,20 +694,28 @@ func (left *Z3Value) Add(right ArithmeticValue) ArithmeticValue {
 		left, right,
 
 		func(left *Z3Value, right *Z3Value) ArithmeticValue {
-			return &Z3Value{left.Context, left.Value.(z3.BV).Add(right.Value.(z3.BV))}
+			return &Z3Value{
+				left.Context,
+				left.Value.(z3.BV).Add(right.Value.(z3.BV)),
+				left.Bits,
+			}
 		},
 		func(left *Z3Value, right *Z3Value) ArithmeticValue {
-			return &Z3Value{left.Context, left.Value.(z3.Float).Add(right.Value.(z3.Float))}
+			return &Z3Value{
+				left.Context,
+				left.Value.(z3.Float).Add(right.Value.(z3.Float)),
+				left.Bits,
+			}
 		},
 		func(*Z3Value, *Z3Value) ArithmeticValue {
 			panic("unsupported")
 		},
 
 		func(left *ConcreteIntValue, right *ConcreteIntValue) ArithmeticValue {
-			return &ConcreteIntValue{left.Context, left.Value + right.Value}
+			return left.Context.CreateInt(left.Value+right.Value, max(left.bits, right.bits))
 		},
 		func(left *ConcreteFloatValue, right *ConcreteFloatValue) ArithmeticValue {
-			return &ConcreteFloatValue{left.Context, left.Value + right.Value}
+			return left.Context.CreateFloat(left.Value+right.Value, max(left.bits, right.bits))
 		},
 		func(left *ConcreteBoolValue, right *ConcreteBoolValue) ArithmeticValue {
 			panic("unsupported")
@@ -644,20 +728,28 @@ func (left *Z3Value) Sub(right ArithmeticValue) ArithmeticValue {
 		left, right,
 
 		func(left *Z3Value, right *Z3Value) ArithmeticValue {
-			return &Z3Value{left.Context, left.Value.(z3.BV).Sub(right.Value.(z3.BV))}
+			return &Z3Value{
+				left.Context,
+				left.Value.(z3.BV).Sub(right.Value.(z3.BV)),
+				left.Bits,
+			}
 		},
 		func(left *Z3Value, right *Z3Value) ArithmeticValue {
-			return &Z3Value{left.Context, left.Value.(z3.Float).Sub(right.Value.(z3.Float))}
+			return &Z3Value{
+				left.Context,
+				left.Value.(z3.Float).Sub(right.Value.(z3.Float)),
+				left.Bits,
+			}
 		},
 		func(*Z3Value, *Z3Value) ArithmeticValue {
 			panic("unsupported")
 		},
 
 		func(left *ConcreteIntValue, right *ConcreteIntValue) ArithmeticValue {
-			return &ConcreteIntValue{left.Context, left.Value - right.Value}
+			return left.Context.CreateInt(left.Value-right.Value, max(left.bits, right.bits))
 		},
 		func(left *ConcreteFloatValue, right *ConcreteFloatValue) ArithmeticValue {
-			return &ConcreteFloatValue{left.Context, left.Value - right.Value}
+			return left.Context.CreateFloat(left.Value-right.Value, max(left.bits, right.bits))
 		},
 		func(left *ConcreteBoolValue, right *ConcreteBoolValue) ArithmeticValue {
 			panic("unsupported")
@@ -670,20 +762,28 @@ func (left *Z3Value) Mul(right ArithmeticValue) ArithmeticValue {
 		left, right,
 
 		func(left *Z3Value, right *Z3Value) ArithmeticValue {
-			return &Z3Value{left.Context, left.Value.(z3.BV).Mul(right.Value.(z3.BV))}
+			return &Z3Value{
+				Context: left.Context,
+				Value:   left.Value.(z3.BV).Mul(right.Value.(z3.BV)),
+				Bits:    left.Bits,
+			}
 		},
 		func(left *Z3Value, right *Z3Value) ArithmeticValue {
-			return &Z3Value{left.Context, left.Value.(z3.Float).Mul(right.Value.(z3.Float))}
+			return &Z3Value{
+				left.Context,
+				left.Value.(z3.Float).Mul(right.Value.(z3.Float)),
+				left.Bits,
+			}
 		},
 		func(*Z3Value, *Z3Value) ArithmeticValue {
 			panic("unsupported")
 		},
 
 		func(left *ConcreteIntValue, right *ConcreteIntValue) ArithmeticValue {
-			return &ConcreteIntValue{left.Context, left.Value * right.Value}
+			return left.Context.CreateInt(left.Value*right.Value, max(left.bits, right.bits))
 		},
 		func(left *ConcreteFloatValue, right *ConcreteFloatValue) ArithmeticValue {
-			return &ConcreteFloatValue{left.Context, left.Value * right.Value}
+			return left.Context.CreateFloat(left.Value*right.Value, max(left.bits, right.bits))
 		},
 		func(left *ConcreteBoolValue, right *ConcreteBoolValue) ArithmeticValue {
 			panic("unsupported")
@@ -696,20 +796,28 @@ func (left *Z3Value) Div(right ArithmeticValue) ArithmeticValue {
 		left, right,
 
 		func(left *Z3Value, right *Z3Value) ArithmeticValue {
-			return &Z3Value{left.Context, left.Value.(z3.BV).SDiv(right.Value.(z3.BV))}
+			return &Z3Value{
+				left.Context,
+				left.Value.(z3.BV).SDiv(right.Value.(z3.BV)),
+				left.Bits,
+			}
 		},
 		func(left *Z3Value, right *Z3Value) ArithmeticValue {
-			return &Z3Value{left.Context, left.Value.(z3.Float).Div(right.Value.(z3.Float))}
+			return &Z3Value{
+				left.Context,
+				left.Value.(z3.Float).Div(right.Value.(z3.Float)),
+				left.Bits,
+			}
 		},
 		func(*Z3Value, *Z3Value) ArithmeticValue {
 			panic("unsupported")
 		},
 
 		func(left *ConcreteIntValue, right *ConcreteIntValue) ArithmeticValue {
-			return &ConcreteIntValue{left.Context, left.Value / right.Value}
+			return left.Context.CreateInt(left.Value/right.Value, max(left.bits, right.bits))
 		},
 		func(left *ConcreteFloatValue, right *ConcreteFloatValue) ArithmeticValue {
-			return &ConcreteFloatValue{left.Context, left.Value / right.Value}
+			return left.Context.CreateFloat(left.Value/right.Value, max(left.bits, right.bits))
 		},
 		func(left *ConcreteBoolValue, right *ConcreteBoolValue) ArithmeticValue {
 			panic("unsupported")
@@ -724,7 +832,7 @@ func (left *Z3Value) AsZ3Value() Z3Value {
 func (left *Z3Value) asZ3IntValue() z3.BV {
 	switch left.IsFloat() {
 	case true:
-		return left.Value.(z3.Float).ToReal().ToInt().ToBV(left.Context.TypesContext.IntBits)
+		return left.Value.(z3.Float).ToReal().ToInt().ToBV(left.Context.TypesContext.Int.Bits)
 	case false:
 		return left.Value.(z3.BV)
 	}
@@ -732,12 +840,12 @@ func (left *Z3Value) asZ3IntValue() z3.BV {
 	panic("unreachable")
 }
 
-func (left *Z3Value) asZ3FloatValue() z3.Float {
+func (left *Z3Value) asZ3FloatValue(bits int) z3.Float {
 	switch left.IsFloat() {
 	case true:
 		return left.Value.(z3.Float)
 	case false:
-		return left.Value.(z3.BV).SToInt().ToReal().ToFloat(left.Context.TypesContext.FloatSort)
+		return left.Value.(z3.BV).SToInt().ToReal().ToFloat(*left.Context.TypesContext.GetFloatSort(bits))
 	}
 
 	panic("unreachable")
@@ -790,10 +898,18 @@ func gt(left ArithmeticValue, right ArithmeticValue) BoolValue {
 		left, right,
 
 		func(left *Z3Value, right *Z3Value) BoolValue {
-			return &Z3Value{left.Context, left.Value.(z3.BV).SGT(right.Value.(z3.BV))}
+			return &Z3Value{
+				left.Context,
+				left.Value.(z3.BV).SGT(right.Value.(z3.BV)),
+				left.Bits,
+			}
 		},
 		func(left *Z3Value, right *Z3Value) BoolValue {
-			return &Z3Value{left.Context, left.Value.(z3.Float).GT(right.Value.(z3.Float))}
+			return &Z3Value{
+				left.Context,
+				left.Value.(z3.Float).GT(right.Value.(z3.Float)),
+				left.Bits,
+			}
 		},
 		func(*Z3Value, *Z3Value) BoolValue {
 			panic("unsupported")
@@ -828,10 +944,18 @@ func ge(left ArithmeticValue, right ArithmeticValue) BoolValue {
 		left, right,
 
 		func(left *Z3Value, right *Z3Value) BoolValue {
-			return &Z3Value{left.Context, left.Value.(z3.BV).SGE(right.Value.(z3.BV))}
+			return &Z3Value{
+				left.Context,
+				left.Value.(z3.BV).SGE(right.Value.(z3.BV)),
+				left.Bits,
+			}
 		},
 		func(left *Z3Value, right *Z3Value) BoolValue {
-			return &Z3Value{left.Context, left.Value.(z3.Float).GE(right.Value.(z3.Float))}
+			return &Z3Value{
+				left.Context,
+				left.Value.(z3.Float).GE(right.Value.(z3.Float)),
+				left.Bits,
+			}
 		},
 		func(*Z3Value, *Z3Value) BoolValue {
 			panic("unsupported")
@@ -866,10 +990,18 @@ func lt(left ArithmeticValue, right ArithmeticValue) BoolValue {
 		left, right,
 
 		func(left *Z3Value, right *Z3Value) BoolValue {
-			return &Z3Value{left.Context, left.Value.(z3.BV).SLT(right.Value.(z3.BV))}
+			return &Z3Value{
+				left.Context,
+				left.Value.(z3.BV).SLT(right.Value.(z3.BV)),
+				left.Bits,
+			}
 		},
 		func(left *Z3Value, right *Z3Value) BoolValue {
-			return &Z3Value{left.Context, left.Value.(z3.Float).LT(right.Value.(z3.Float))}
+			return &Z3Value{
+				left.Context,
+				left.Value.(z3.Float).LT(right.Value.(z3.Float)),
+				left.Bits,
+			}
 		},
 		func(*Z3Value, *Z3Value) BoolValue {
 			panic("unsupported")
@@ -904,10 +1036,18 @@ func le(left ArithmeticValue, right ArithmeticValue) BoolValue {
 		left, right,
 
 		func(left *Z3Value, right *Z3Value) BoolValue {
-			return &Z3Value{left.Context, left.Value.(z3.BV).SLE(right.Value.(z3.BV))}
+			return &Z3Value{
+				left.Context,
+				left.Value.(z3.BV).SLE(right.Value.(z3.BV)),
+				left.Bits,
+			}
 		},
 		func(left *Z3Value, right *Z3Value) BoolValue {
-			return &Z3Value{left.Context, left.Value.(z3.Float).LE(right.Value.(z3.Float))}
+			return &Z3Value{
+				left.Context,
+				left.Value.(z3.Float).LE(right.Value.(z3.Float)),
+				left.Bits,
+			}
 		},
 		func(*Z3Value, *Z3Value) BoolValue {
 			panic("unsupported")
@@ -946,15 +1086,25 @@ func eq(left Value, right Value) BoolValue {
 		left, right,
 
 		func(left *Z3Value, right *Z3Value) BoolValue {
-			return &Z3Value{left.Context, left.Value.(z3.BV).Eq(right.Value.(z3.BV))}
-		},
-		func(left *Z3Value, right *Z3Value) BoolValue {
-			return &Z3Value{left.Context, left.Value.(z3.Float).Eq(right.Value.(z3.Float))}
+			return &Z3Value{
+				left.Context,
+				left.Value.(z3.BV).Eq(right.Value.(z3.BV)),
+				left.Bits,
+			}
 		},
 		func(left *Z3Value, right *Z3Value) BoolValue {
 			return &Z3Value{
 				left.Context,
-				left.Value.(z3.Bool).Eq(right.Value.(z3.Bool))}
+				left.Value.(z3.Float).Eq(right.Value.(z3.Float)),
+				left.Bits,
+			}
+		},
+		func(left *Z3Value, right *Z3Value) BoolValue {
+			return &Z3Value{
+				left.Context,
+				left.Value.(z3.Bool).Eq(right.Value.(z3.Bool)),
+				left.Bits,
+			}
 		},
 
 		func(left *ConcreteIntValue, right *ConcreteIntValue) BoolValue {
@@ -990,15 +1140,25 @@ func notEq(left Value, right Value) BoolValue {
 		left, right,
 
 		func(left *Z3Value, right *Z3Value) BoolValue {
-			return &Z3Value{left.Context, left.Value.(z3.BV).NE(right.Value.(z3.BV))}
-		},
-		func(left *Z3Value, right *Z3Value) BoolValue {
-			return &Z3Value{left.Context, left.Value.(z3.Float).NE(right.Value.(z3.Float))}
+			return &Z3Value{
+				left.Context,
+				left.Value.(z3.BV).NE(right.Value.(z3.BV)),
+				left.Bits,
+			}
 		},
 		func(left *Z3Value, right *Z3Value) BoolValue {
 			return &Z3Value{
 				left.Context,
-				left.Value.(z3.Bool).NE(right.Value.(z3.Bool))}
+				left.Value.(z3.Float).NE(right.Value.(z3.Float)),
+				left.Bits,
+			}
+		},
+		func(left *Z3Value, right *Z3Value) BoolValue {
+			return &Z3Value{
+				left.Context,
+				left.Value.(z3.Bool).NE(right.Value.(z3.Bool)),
+				left.Bits,
+			}
 		},
 
 		func(left *ConcreteIntValue, right *ConcreteIntValue) BoolValue {
@@ -1013,50 +1173,63 @@ func notEq(left Value, right Value) BoolValue {
 	)
 }
 
-func (left *ConcreteIntValue) AsInt() Value {
-	return left
+func (left *ConcreteIntValue) AsInt(bits int) Value {
+	return left.Context.CreateInt(left.Value, bits)
 }
 
-func (left *ConcreteFloatValue) AsInt() Value {
-	return &ConcreteIntValue{
-		left.Context,
-		int64(left.Value),
-	}
+func (left *ConcreteFloatValue) AsInt(bits int) Value {
+	return left.Context.CreateInt(int64(left.Value), bits)
 }
 
-func (left *Z3Value) AsInt() Value {
+func (left *Z3Value) AsInt(bits int) Value {
 	switch {
 	case left.IsFloat():
 		return &Z3Value{
 			left.Context,
-			left.Value.(z3.Float).ToReal().ToInt(),
+			left.Value.(z3.Float).ToReal().ToInt().ToBV(bits),
+			left.Bits,
 		}
 	case left.IsInteger():
-		return left
+		switch left.Bits {
+		case bits:
+			return left
+		default:
+			return &Z3Value{
+				left.Context,
+				left.Value.(z3.BV).SToInt().ToBV(bits),
+				left.Bits,
+			}
+		}
 	}
 
 	panic("unreachable")
 }
 
-func (left *ConcreteIntValue) AsFloat() Value {
-	return &ConcreteFloatValue{
-		left.Context,
-		float64(left.Value),
-	}
+func (left *ConcreteIntValue) AsFloat(bits int) Value {
+	return left.Context.CreateFloat(float64(left.Value), bits)
 }
 
-func (left *ConcreteFloatValue) AsFloat() Value {
-	return left
+func (left *ConcreteFloatValue) AsFloat(bits int) Value {
+	return left.Context.CreateFloat(left.Value, bits)
 }
 
-func (left *Z3Value) AsFloat() Value {
+func (left *Z3Value) AsFloat(bits int) Value {
 	switch {
 	case left.IsFloat():
-		return left
+		switch left.Bits {
+		case bits:
+			return left
+		default:
+			return &Z3Value{
+				Context: left.Context,
+				Value:   left.Value.(z3.Float).ToReal().ToFloat(*left.Context.TypesContext.GetFloatSort(bits)),
+			}
+		}
 	case left.IsInteger():
 		return &Z3Value{
 			left.Context,
-			left.Value.(z3.BV).SToFloat(left.Context.TypesContext.FloatSort),
+			left.Value.(z3.BV).SToFloat(*left.Context.TypesContext.GetFloatSort(bits)),
+			left.Bits,
 		}
 	}
 
@@ -1087,16 +1260,14 @@ func (left *Z3Value) AsBool() Value {
 func (left *ConcreteIntValue) Rem(right Value) Value {
 	switch castedRight := right.(type) {
 	case *ConcreteIntValue:
-		return &ConcreteIntValue{
-			left.Context,
-			left.Value % castedRight.Value,
-		}
+		return left.Context.CreateInt(left.Value%castedRight.Value, left.bits)
 	case *ConcreteFloatValue:
 		panic("unsupported!")
 	case *Z3Value:
 		return &Z3Value{
 			left.Context,
 			left.asZ3IntValue().SRem(castedRight.Value.(z3.BV)),
+			left.bits,
 		}
 	}
 
@@ -1118,7 +1289,11 @@ func (left *Z3Value) Rem(right Value) Value {
 		case *ConcreteIntValue:
 			return &Z3Value{
 				left.Context,
-				leftBV.SRem(left.Context.Z3Context.FromInt(castedRight.Value, left.Context.TypesContext.IntSort).(z3.BV)),
+				leftBV.SRem(
+					left.Context.Z3Context.FromInt(
+						castedRight.Value, *left.Context.TypesContext.GetIntSort(castedRight.bits)).(z3.BV),
+				),
+				left.Bits,
 			}
 		case *ConcreteFloatValue:
 			panic("unsupported!")
@@ -1126,6 +1301,7 @@ func (left *Z3Value) Rem(right Value) Value {
 			return &Z3Value{
 				left.Context,
 				leftBV.SRem(castedRight.Value.(z3.BV)),
+				left.Bits,
 			}
 		}
 	}
@@ -1172,7 +1348,7 @@ func (left *ConcreteBoolValue) Lt(Value) Value {
 func (left *ConcreteBoolValue) Le(Value) Value {
 	panic("Unsupported")
 }
-func (left *ConcreteBoolValue) AsInt() Value {
+func (left *ConcreteBoolValue) AsInt(bits int) Value {
 	panic("Unsupported")
 }
 func (left *ConcreteBoolValue) AsFloat() Value {
@@ -1181,7 +1357,7 @@ func (left *ConcreteBoolValue) AsFloat() Value {
 func (left *ConcreteBoolValue) asZ3IntValue() z3.BV {
 	panic("Unsupported")
 }
-func (left *ConcreteBoolValue) asZ3FloatValue() z3.Float {
+func (left *ConcreteBoolValue) asZ3FloatValue(bits int) z3.Float {
 	panic("Unsupported")
 }
 func (left *ConcreteBoolValue) Rem(Value) Value {
@@ -1192,6 +1368,7 @@ func (left *ConcreteBoolValue) AsZ3Value() Z3Value {
 	return Z3Value{
 		left.Context,
 		left.Context.Z3Context.FromBool(left.Value),
+		1,
 	}
 }
 
@@ -1212,6 +1389,7 @@ func (left *ConcreteBoolValue) BoolXor(value BoolValue) BoolValue {
 			return &Z3Value{
 				left.Context,
 				left.Context.Z3Context.FromBool(left.Value).Xor(castedRight.Value.(z3.Bool)),
+				1,
 			}
 		}
 	}
@@ -1288,14 +1466,12 @@ func (left *Z3Value) Xor(value Value) Value {
 func (left *ConcreteIntValue) BitwiseAnd(value ArithmeticValue) ArithmeticValue {
 	switch castedRight := value.(type) {
 	case *ConcreteIntValue:
-		return &ConcreteIntValue{
-			left.Context,
-			left.Value & castedRight.Value,
-		}
+		return left.Context.CreateInt(left.Value&castedRight.Value, left.bits)
 	case *Z3Value:
 		return &Z3Value{
 			left.Context,
 			left.AsZ3Value().Value.(z3.BV).And(castedRight.Value.(z3.BV)),
+			left.bits,
 		}
 	}
 
@@ -1304,14 +1480,12 @@ func (left *ConcreteIntValue) BitwiseAnd(value ArithmeticValue) ArithmeticValue 
 func (left *ConcreteIntValue) BitwiseOr(value ArithmeticValue) ArithmeticValue {
 	switch castedRight := value.(type) {
 	case *ConcreteIntValue:
-		return &ConcreteIntValue{
-			left.Context,
-			left.Value | castedRight.Value,
-		}
+		return left.Context.CreateInt(left.Value|castedRight.Value, left.bits)
 	case *Z3Value:
 		return &Z3Value{
 			left.Context,
 			left.AsZ3Value().Value.(z3.BV).Or(castedRight.Value.(z3.BV)),
+			left.bits,
 		}
 	}
 
@@ -1320,14 +1494,12 @@ func (left *ConcreteIntValue) BitwiseOr(value ArithmeticValue) ArithmeticValue {
 func (left *ConcreteIntValue) BitwiseXor(value ArithmeticValue) ArithmeticValue {
 	switch castedRight := value.(type) {
 	case *ConcreteIntValue:
-		return &ConcreteIntValue{
-			left.Context,
-			left.Value ^ castedRight.Value,
-		}
+		return left.Context.CreateInt(left.Value^castedRight.Value, left.bits)
 	case *Z3Value:
 		return &Z3Value{
 			left.Context,
 			left.AsZ3Value().Value.(z3.BV).Xor(castedRight.Value.(z3.BV)),
+			left.bits,
 		}
 	}
 
@@ -1352,6 +1524,7 @@ func (left *Z3Value) BitwiseAnd(value ArithmeticValue) ArithmeticValue {
 		return &Z3Value{
 			left.Context,
 			left.Value.(z3.BV).And(castedRight.Value.(z3.BV)),
+			left.Bits,
 		}
 	}
 
@@ -1365,6 +1538,7 @@ func (left *Z3Value) BitwiseOr(value ArithmeticValue) ArithmeticValue {
 		return &Z3Value{
 			left.Context,
 			left.Value.(z3.BV).Or(castedRight.Value.(z3.BV)),
+			left.Bits,
 		}
 	}
 
@@ -1378,8 +1552,48 @@ func (left *Z3Value) BitwiseXor(value ArithmeticValue) ArithmeticValue {
 		return &Z3Value{
 			left.Context,
 			left.Value.(z3.BV).Xor(castedRight.Value.(z3.BV)),
+			left.Bits,
 		}
 	}
 
 	panic("unsupported!")
+}
+
+func (ctx *Context) CreateBool(value bool) *ConcreteBoolValue {
+	return &ConcreteBoolValue{
+		Context: ctx,
+		Value:   value,
+	}
+}
+
+func (ctx *Context) CreateInt(value int64, bits int) *ConcreteIntValue {
+	return &ConcreteIntValue{
+		Context: ctx,
+		Value:   value,
+		bits:    bits,
+	}
+}
+
+func (ctx *Context) CreatePtrValue(value int) *ConcreteIntValue {
+	return &ConcreteIntValue{
+		Context: ctx,
+		Value:   int64(value),
+		bits:    ctx.TypesContext.Int64.Bits,
+	}
+}
+
+func (ctx *Context) CreateFloat(value float64, bits int) *ConcreteFloatValue {
+	return &ConcreteFloatValue{
+		Context: ctx,
+		Value:   value,
+		bits:    bits,
+	}
+}
+
+func max(a int, b int) int {
+	if a > b {
+		return a
+	} else {
+		return b
+	}
 }

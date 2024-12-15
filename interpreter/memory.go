@@ -24,9 +24,9 @@ type StructureDescriptor struct {
 	fields map[int]sortPtr
 }
 
-var basePtrs = make(map[sortPtr]int64)
+var basePtrs = make(map[sortPtr]int)
 
-func getNextPtr(sortPtr sortPtr) int64 {
+func getNextPtr(sortPtr sortPtr) int {
 	if _, ok := basePtrs[sortPtr]; !ok {
 		basePtrs[sortPtr] = 1 // we start from 1 because 0 represents nil
 	}
@@ -37,22 +37,16 @@ func getNextPtr(sortPtr sortPtr) int64 {
 }
 
 func (ptr *Pointer) IsNil() BoolValue {
-	zeroIntConst := ConcreteIntValue{
-		ptr.ctx,
-		int64(0),
-	}
+	zeroIntConst := ptr.ctx.CreatePtrValue(0)
 
-	return ptr.ptr.Eq(&zeroIntConst)
+	return ptr.ptr.Eq(zeroIntConst)
 }
 
 func (mem *Memory) NewPtr(typeName string) *Pointer {
 	intPtr := getNextPtr(sortPtr(typeName))
 	newPtr := &Pointer{
-		ctx: mem.ctx,
-		ptr: &ConcreteIntValue{
-			mem.ctx,
-			intPtr,
-		},
+		ctx:  mem.ctx,
+		ptr:  mem.ctx.CreatePtrValue(intPtr),
 		sPtr: sortPtr(typeName),
 	}
 
@@ -61,11 +55,8 @@ func (mem *Memory) NewPtr(typeName string) *Pointer {
 
 func (mem *Memory) NullPtr(typeName string) *Pointer {
 	newPtr := &Pointer{
-		ctx: mem.ctx,
-		ptr: &ConcreteIntValue{
-			mem.ctx,
-			0,
-		},
+		ctx:  mem.ctx,
+		ptr:  mem.ctx.CreatePtrValue(0),
 		sPtr: sortPtr(typeName),
 	}
 
@@ -83,18 +74,12 @@ func (mem *Memory) Store(ptr *Pointer, value Value) {
 }
 
 func (mem *Memory) initLineFor(lineSortPtr sortPtr, typeName string) {
-	var arrSort z3.Sort
-	// todo
-	switch typeName {
-	case "int":
-		arrSort = mem.ctx.Z3Context.ArraySort(mem.ctx.TypesContext.Pointer, mem.ctx.TypesContext.IntSort)
-	case "float64", "float":
-		arrSort = mem.ctx.Z3Context.ArraySort(mem.ctx.TypesContext.Pointer, mem.ctx.TypesContext.FloatSort)
-	default:
-		// non default type
-		arrSort = mem.ctx.Z3Context.ArraySort(mem.ctx.TypesContext.Pointer, mem.ctx.TypesContext.Pointer)
+	elemSort := mem.ctx.TypesContext.GetPrimitiveTypeSortOrNil(typeName)
+	if elemSort == nil {
+		// this is a pointer
+		elemSort = &mem.ctx.TypesContext.Pointer
 	}
-
+	arrSort := mem.ctx.Z3Context.ArraySort(mem.ctx.TypesContext.Pointer, *elemSort)
 	mem.memoryLines[lineSortPtr] = mem.ctx.Z3Context.FreshConst(string(lineSortPtr)+"-line", arrSort).(z3.Array)
 }
 
@@ -111,6 +96,7 @@ func (mem *Memory) Load(ptr *Pointer) Value {
 	return &Z3Value{
 		Context: context,
 		Value:   z3Value,
+		Bits:    64,
 	}
 }
 
@@ -138,30 +124,9 @@ func (mem *Memory) StoreField(structPtr *Pointer, fieldIdx int, value Value) {
 	sPtr := structPtr.sPtr
 	structDescr := mem.structures[sPtr]
 	if _, ok := structDescr.fields[fieldIdx]; !ok {
-		var fieldSortPtr sortPtr
-		switch castedValue := value.(type) {
-		case *ConcreteIntValue:
-			fieldSortPtr = "int"
-		case *ConcreteFloatValue:
-			fieldSortPtr = "float"
-		case *ConcreteBoolValue:
-			fieldSortPtr = "bool"
-		case *Z3Value:
-			switch {
-			case castedValue.IsFloat():
-				fieldSortPtr = "float"
-			case castedValue.IsInteger():
-				fieldSortPtr = "int"
-			case castedValue.IsBool():
-				fieldSortPtr = "bool"
-			default:
-				panic("unsupported value type")
-			}
-		default:
-			panic("unsupported value type")
-		}
+		fieldSortPtr := getTypeName(value)
 
-		structDescr.fields[fieldIdx] = fieldSortPtr
+		structDescr.fields[fieldIdx] = sortPtr(fieldSortPtr)
 	}
 
 	fieldSort := structDescr.fields[fieldIdx]
@@ -195,6 +160,7 @@ func (mem *Memory) LoadField(structPtr *Pointer, fieldIdx int) Value {
 	return &Z3Value{
 		Context: mem.ctx,
 		Value:   z3Value,
+		Bits:    64,
 	}
 }
 
@@ -229,11 +195,11 @@ func (mem *Memory) GetFieldPointer(structPtr *Pointer, fieldIdx int) Value {
 func (mem *Memory) initMemoryWrapper() {
 	fields := make(map[int]string)
 	fields[0] = "arrays-pointer"
-	fields[1] = "int"
+	fields[1] = "array-len"
 
 	mem.NewStruct("array-wrapper", fields)
-	arrSort := mem.ctx.Z3Context.ArraySort(mem.ctx.TypesContext.Pointer, mem.ctx.TypesContext.IntSort)
-	mem.memoryLines["int"] = mem.ctx.Z3Context.FreshConst("int-line", arrSort).(z3.Array)
+	arrSort := mem.ctx.Z3Context.ArraySort(mem.ctx.TypesContext.Pointer, mem.ctx.TypesContext.ArrayIndexSort)
+	mem.memoryLines["array-len"] = mem.ctx.Z3Context.FreshConst("array-len", arrSort).(z3.Array)
 }
 
 func (mem *Memory) AllocateArray(elementType string) *Pointer {
@@ -305,6 +271,7 @@ func (mem *Memory) GetArrayElementPointer(arrayPtr *Pointer, index Value) *Point
 	valuePtrValue := &Z3Value{
 		Context: mem.ctx,
 		Value:   valuePtrZ3Value,
+		Bits:    64,
 	}
 	valuePtr := &Pointer{
 		ctx:  mem.ctx,
@@ -375,16 +342,23 @@ func (ptr *Pointer) Xor(Value) Value {
 }
 
 func getTypeName(v Value) string {
-	// todo
-	switch {
-	case v.IsFloat():
-		return "float"
-	case v.IsInteger():
-		return "int"
-	case v.IsBool():
+	switch castedValue := v.(type) {
+	case *ConcreteBoolValue:
 		return "bool"
-	default:
-		// pointer
-		return "pointer"
+	case *ConcreteIntValue:
+		return "int" + strconv.Itoa(castedValue.bits)
+	case *ConcreteFloatValue:
+		return "float" + strconv.Itoa(castedValue.bits)
+	case *Z3Value:
+		switch {
+		case castedValue.IsBool():
+			return "bool"
+		case castedValue.IsInteger():
+			return "int" + strconv.Itoa(castedValue.Bits)
+		case castedValue.IsFloat():
+			return "float" + strconv.Itoa(castedValue.Bits)
+		}
 	}
+
+	panic("unsupported")
 }
