@@ -58,6 +58,8 @@ type ArithmeticValue interface {
 	And(Value) Value
 	Or(Value) Value
 	Xor(Value) Value
+
+	overflowAware() ArithmeticValue
 }
 
 type BoolValue interface {
@@ -180,7 +182,7 @@ func (left *ConcreteIntValue) Add(v ArithmeticValue) ArithmeticValue {
 		func(left *ConcreteBoolValue, right *ConcreteBoolValue) ArithmeticValue {
 			panic("unsupported")
 		},
-	)
+	).overflowAware()
 }
 
 func (left *ConcreteIntValue) Sub(v ArithmeticValue) ArithmeticValue {
@@ -214,7 +216,7 @@ func (left *ConcreteIntValue) Sub(v ArithmeticValue) ArithmeticValue {
 		func(left *ConcreteBoolValue, right *ConcreteBoolValue) ArithmeticValue {
 			panic("unsupported")
 		},
-	)
+	).overflowAware()
 }
 
 func (left *ConcreteIntValue) Mul(v ArithmeticValue) ArithmeticValue {
@@ -248,7 +250,7 @@ func (left *ConcreteIntValue) Mul(v ArithmeticValue) ArithmeticValue {
 		func(left *ConcreteBoolValue, right *ConcreteBoolValue) ArithmeticValue {
 			panic("unsupported")
 		},
-	)
+	).overflowAware()
 }
 
 func (left *ConcreteIntValue) Div(v ArithmeticValue) ArithmeticValue {
@@ -282,7 +284,7 @@ func (left *ConcreteIntValue) Div(v ArithmeticValue) ArithmeticValue {
 		func(left *ConcreteBoolValue, right *ConcreteBoolValue) ArithmeticValue {
 			panic("unsupported")
 		},
-	)
+	).overflowAware()
 }
 
 func (left *ConcreteFloatValue) Add(v ArithmeticValue) ArithmeticValue {
@@ -316,7 +318,7 @@ func (left *ConcreteFloatValue) Add(v ArithmeticValue) ArithmeticValue {
 		func(left *ConcreteBoolValue, right *ConcreteBoolValue) ArithmeticValue {
 			panic("unsupported")
 		},
-	)
+	).overflowAware()
 }
 
 func (left *ConcreteFloatValue) Sub(v ArithmeticValue) ArithmeticValue {
@@ -350,7 +352,7 @@ func (left *ConcreteFloatValue) Sub(v ArithmeticValue) ArithmeticValue {
 		func(left *ConcreteBoolValue, right *ConcreteBoolValue) ArithmeticValue {
 			panic("unsupported")
 		},
-	)
+	).overflowAware()
 }
 
 func (left *ConcreteFloatValue) Mul(v ArithmeticValue) ArithmeticValue {
@@ -384,7 +386,7 @@ func (left *ConcreteFloatValue) Mul(v ArithmeticValue) ArithmeticValue {
 		func(left *ConcreteBoolValue, right *ConcreteBoolValue) ArithmeticValue {
 			panic("unsupported")
 		},
-	)
+	).overflowAware()
 }
 
 func (left *ConcreteFloatValue) Div(v ArithmeticValue) ArithmeticValue {
@@ -418,10 +420,10 @@ func (left *ConcreteFloatValue) Div(v ArithmeticValue) ArithmeticValue {
 		func(left *ConcreteBoolValue, right *ConcreteBoolValue) ArithmeticValue {
 			panic("unsupported")
 		},
-	)
+	).overflowAware()
 }
 
-func numericValueBinop[T any](
+func numericValueBinop[T Value](
 	left Value,
 	right Value,
 
@@ -720,7 +722,7 @@ func (left *Z3Value) Add(right ArithmeticValue) ArithmeticValue {
 		func(left *ConcreteBoolValue, right *ConcreteBoolValue) ArithmeticValue {
 			panic("unsupported")
 		},
-	)
+	).overflowAware()
 }
 
 func (left *Z3Value) Sub(right ArithmeticValue) ArithmeticValue {
@@ -754,7 +756,7 @@ func (left *Z3Value) Sub(right ArithmeticValue) ArithmeticValue {
 		func(left *ConcreteBoolValue, right *ConcreteBoolValue) ArithmeticValue {
 			panic("unsupported")
 		},
-	)
+	).overflowAware()
 }
 
 func (left *Z3Value) Mul(right ArithmeticValue) ArithmeticValue {
@@ -788,7 +790,7 @@ func (left *Z3Value) Mul(right ArithmeticValue) ArithmeticValue {
 		func(left *ConcreteBoolValue, right *ConcreteBoolValue) ArithmeticValue {
 			panic("unsupported")
 		},
-	)
+	).overflowAware()
 }
 
 func (left *Z3Value) Div(right ArithmeticValue) ArithmeticValue {
@@ -822,7 +824,7 @@ func (left *Z3Value) Div(right ArithmeticValue) ArithmeticValue {
 		func(left *ConcreteBoolValue, right *ConcreteBoolValue) ArithmeticValue {
 			panic("unsupported")
 		},
-	)
+	).overflowAware()
 }
 
 func (left *Z3Value) AsZ3Value() Z3Value {
@@ -1187,7 +1189,7 @@ func (left *Z3Value) AsInt(bits int) Value {
 		return &Z3Value{
 			left.Context,
 			left.Value.(z3.Float).ToReal().ToInt().ToBV(bits),
-			left.Bits,
+			bits,
 		}
 	case left.IsInteger():
 		switch left.Bits {
@@ -1197,7 +1199,7 @@ func (left *Z3Value) AsInt(bits int) Value {
 			return &Z3Value{
 				left.Context,
 				left.Value.(z3.BV).SToInt().ToBV(bits),
-				left.Bits,
+				bits,
 			}
 		}
 	}
@@ -1223,13 +1225,14 @@ func (left *Z3Value) AsFloat(bits int) Value {
 			return &Z3Value{
 				Context: left.Context,
 				Value:   left.Value.(z3.Float).ToReal().ToFloat(*left.Context.TypesContext.GetFloatSort(bits)),
+				Bits:    bits,
 			}
 		}
 	case left.IsInteger():
 		return &Z3Value{
 			left.Context,
 			left.Value.(z3.BV).SToFloat(*left.Context.TypesContext.GetFloatSort(bits)),
-			left.Bits,
+			bits,
 		}
 	}
 
@@ -1596,4 +1599,33 @@ func max(a int, b int) int {
 	} else {
 		return b
 	}
+}
+
+func (left *ConcreteFloatValue) overflowAware() ArithmeticValue {
+	return left // should I add overflow support for floats?
+}
+
+func (left *ConcreteIntValue) overflowAware() ArithmeticValue {
+	if left.bits == 64 {
+		return left
+	}
+
+	// additionally support overflow for ints with bits < 64
+	base := int64(1) << left.bits
+	if left.Value < base/2 && left.Value >= -base/2 {
+		return left
+	}
+
+	v := left.Value % base
+
+	return &ConcreteIntValue{
+		Context: left.Context,
+		Value:   v - base,
+		bits:    left.bits,
+	}
+}
+
+func (left *Z3Value) overflowAware() ArithmeticValue {
+	// BV overflows by design
+	return left
 }
