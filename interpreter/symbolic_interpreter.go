@@ -52,12 +52,6 @@ func Interpret(
 		TypesContext: &typesContext,
 		States:       states,
 		Results:      make([]*State, 0),
-		Memory:       nil,
-	}
-	context.Memory = &Memory{
-		ctx:         &context,
-		memoryLines: make(map[sortPtr]z3.Array),
-		structures:  make(map[sortPtr]*StructureDescriptor),
 	}
 
 	context.ReturnValue = getReturnConst(function, &context)
@@ -133,6 +127,11 @@ func addInitState(function *ssa.Function, ctx *Context) {
 		Values:    map[string]Value{},
 	}
 	stackFrames = append(stackFrames, initialFrame)
+	memory := &Memory{
+		ctx:         ctx,
+		memoryLines: make(map[sortPtr]z3.Array),
+		structures:  make(map[sortPtr]*StructureDescriptor),
+	}
 
 	entry := function.DomPreorder()[0]
 
@@ -150,8 +149,8 @@ func addInitState(function *ssa.Function, ctx *Context) {
 					1: "float64",
 				}
 
-				ctx.Memory.NewStruct(typeName, fields)
-				ptr := ctx.Memory.NewPtr(typeName)
+				memory.NewStruct(typeName, fields)
+				ptr := memory.NewPtr(typeName)
 				initialFrame.Values[name] = ptr
 			default:
 				bits := ctx.TypesContext.GetPrimitiveTypeBits(casted.String())
@@ -173,32 +172,35 @@ func addInitState(function *ssa.Function, ctx *Context) {
 				fields[i] = GetTypeName(struct_.Field(i).Type())
 			}
 
-			ctx.Memory.NewStruct(typeName, fields)
-			initialFrame.Values[name] = ctx.Memory.NewPtr(typeName)
+			memory.NewStruct(typeName, fields)
+			initialFrame.Values[name] = memory.NewPtr(typeName)
 		case *types.Slice:
 			typeName := GetTypeName(casted.Elem())
-			initialFrame.Values[name] = ctx.Memory.AllocateArray(typeName)
+			arrPtr := memory.AllocateArray(typeName, true)
+			initialFrame.Values[name] = arrPtr
 
 			elemType := casted.Elem()
 			switch castedElemType := elemType.(type) {
 			case *types.Named:
-				ctx.Memory.NewStruct(GetTypeName(castedElemType), GetStructureFields(castedElemType))
+				memory.NewStruct(GetTypeName(castedElemType), GetStructureFields(castedElemType))
 			case *types.Pointer:
 				elemType = castedElemType.Elem()
-				ctx.Memory.NewStruct(GetTypeName(castedElemType), GetStructureFields(elemType.(*types.Named)))
+				memory.NewStruct(GetTypeName(castedElemType), GetStructureFields(elemType.(*types.Named)))
 			}
 		}
 	}
 
-	initState := State{
+	initState := &State{
 		Priority:           0,
 		Constraints:        constraints,
 		StackFrames:        stackFrames,
 		Statement:          entry.Instrs[0],
 		VisitedBasicBlocks: []int{entry.Index},
+		Memory:             memory,
 	}
 
-	ctx.States.Insert(&initState)
+	ctx.States.Insert(initState)
+	ctx.InitState = initState
 }
 
 func visitInstruction(instr ssa.Instruction, prevState *State, ctx *Context) []*State {
@@ -218,7 +220,7 @@ func visitInstruction(instr ssa.Instruction, prevState *State, ctx *Context) []*
 	case *ssa.Convert:
 		return visitConvertInstr(casted, prevState, ctx)
 	case *ssa.Alloc:
-		return visitAllocInstr(casted, prevState, ctx)
+		return visitAllocInstr(casted, prevState)
 	case *ssa.Jump:
 		return visitJumpInstr(casted, prevState, ctx)
 	case *ssa.Slice:
@@ -239,11 +241,11 @@ func visitInstruction(instr ssa.Instruction, prevState *State, ctx *Context) []*
 func visitMakeSliceInstr(casted *ssa.MakeSlice, state *State, ctx *Context) []*State {
 	newState := createPossibleNextStates(state)[0]
 	elementType := GetTypeName(casted.Type().(*types.Slice).Elem())
-	arrayPtr := ctx.Memory.AllocateArray(elementType)
+	arrayPtr := newState.Memory.AllocateArray(elementType, false)
 	saveToStack(casted.Name(), arrayPtr, newState)
 
-	arrayLen := visitValue(casted.Len, state, ctx)
-	ctx.Memory.SetArrayLen(arrayPtr, arrayLen)
+	arrayLen := visitValue(casted.Len, newState, ctx)
+	newState.Memory.SetArrayLen(arrayPtr, arrayLen)
 
 	return []*State{newState}
 }
@@ -252,7 +254,7 @@ func visitIndexAddrInstr(casted *ssa.IndexAddr, state *State, ctx *Context) []*S
 	newState := createPossibleNextStates(state)[0]
 	arrayPtr := visitValue(casted.X, newState, ctx).(*Pointer)
 	index := visitValue(casted.Index, newState, ctx)
-	arrayElementPointer := ctx.Memory.GetArrayElementPointer(arrayPtr, index)
+	arrayElementPointer := newState.Memory.GetArrayElementPointer(arrayPtr, index)
 
 	saveToStack(casted.Name(), arrayElementPointer, newState)
 
@@ -261,7 +263,7 @@ func visitIndexAddrInstr(casted *ssa.IndexAddr, state *State, ctx *Context) []*S
 
 func visitSliceInstr(casted *ssa.Slice, state *State, ctx *Context) []*State {
 	newState := createPossibleNextStates(state)[0]
-	result := visitValue(casted.X, state, ctx)
+	result := visitValue(casted.X, newState, ctx)
 	saveToStack(casted.Name(), result, newState)
 
 	return []*State{newState}
@@ -271,18 +273,18 @@ func visitJumpInstr(_ *ssa.Jump, state *State, _ *Context) []*State {
 	return createPossibleNextStates(state)
 }
 
-func visitAllocInstr(casted *ssa.Alloc, state *State, ctx *Context) []*State {
+func visitAllocInstr(casted *ssa.Alloc, state *State) []*State {
 	newState := createPossibleNextStates(state)[0]
 	elem := casted.Type().(*types.Pointer).Elem()
 	var result Value
 	switch elem := elem.(type) {
 	case *types.Array:
 		elementType := GetTypeName(elem.Elem())
-		result = ctx.Memory.AllocateArray(elementType)
+		result = newState.Memory.AllocateArray(elementType, false)
 	case *types.Named:
 		structName := GetTypeName(elem)
-		ctx.Memory.NewStruct(structName, GetStructureFields(elem))
-		result = ctx.Memory.NewPtr(structName)
+		newState.Memory.NewStruct(structName, GetStructureFields(elem))
+		result = newState.Memory.NewPtr(structName)
 	default:
 		panic("unknown alloc type " + elem.String())
 	}
@@ -296,7 +298,7 @@ func visitConvertInstr(casted *ssa.Convert, state *State, ctx *Context) []*State
 
 	value := visitValue(casted.X, newState, ctx)
 	if ptr, ok := value.(*Pointer); ok {
-		value = ctx.Memory.Load(ptr)
+		value = newState.Memory.Load(ptr)
 	}
 	var result Value
 
@@ -338,9 +340,9 @@ func visitPhiInstr(casted *ssa.Phi, state *State, ctx *Context) []*State {
 		predBlocksIndexes = append(predBlocksIndexes, pred.Index)
 	}
 
-	for _, visitedBlockIdx := range slices.Backward(state.VisitedBasicBlocks) {
+	for _, visitedBlockIdx := range slices.Backward(newState.VisitedBasicBlocks) {
 		if i := slices.Index(predBlocksIndexes, visitedBlockIdx); i != -1 {
-			res := visitValue(casted.Edges[i], state, ctx)
+			res := visitValue(casted.Edges[i], newState, ctx)
 			saveToStack(casted.Name(), res, newState)
 
 			return []*State{newState}
@@ -358,7 +360,7 @@ func visitUnOpInstr(casted *ssa.UnOp, state *State, ctx *Context) []*State {
 
 	switch casted.Op {
 	case token.MUL: // todo: unary +, -
-		result = visitDereference(casted, state, ctx)
+		result = visitDereference(casted, newState, ctx)
 	}
 
 	saveToStack(name, result, newState)
@@ -424,7 +426,7 @@ func visitBinOpInstr(casted *ssa.BinOp, state *State, ctx *Context) []*State {
 
 func visitStoreInstr(casted *ssa.Store, state *State, ctx *Context) []*State {
 	newState := createPossibleNextStates(state)[0]
-	storeValue := visitValue(casted.Val, state, ctx)
+	storeValue := visitValue(casted.Val, newState, ctx)
 
 	if _, ok := casted.Addr.Type().(*types.Pointer); ok {
 		_, isParam := casted.Val.(*ssa.Parameter)
@@ -432,8 +434,8 @@ func visitStoreInstr(casted *ssa.Store, state *State, ctx *Context) []*State {
 		if isParam && isStruct {
 			newState.LastStackFrame().Values[casted.Addr.Name()] = storeValue
 		} else {
-			ptr := visitValue(casted.Addr, state, ctx).(*Pointer)
-			ctx.Memory.Store(ptr, storeValue)
+			ptr := visitValue(casted.Addr, newState, ctx).(*Pointer)
+			newState.Memory.Store(ptr, storeValue)
 		}
 	} else {
 		newState.LastStackFrame().Values[casted.Addr.Name()] = storeValue
@@ -512,7 +514,7 @@ func visitValue(val ssa.Value, state *State, ctx *Context) Value {
 	//case *ssa.Parameter:
 	//	return visitParameter(casted, state, ctx)
 	case *ssa.Const:
-		return visitConst(casted, ctx)
+		return visitConst(casted, ctx, state)
 	case *ssa.FieldAddr:
 		return visitFieldAddr(casted, state, ctx)
 	case *ssa.IndexAddr:
@@ -526,7 +528,7 @@ func visitIndexAddr(casted *ssa.IndexAddr, state *State, ctx *Context) Value {
 	arrayPtr := visitValue(casted.X, state, ctx).(*Pointer)
 	index := visitValue(casted.Index, state, ctx)
 
-	return ctx.Memory.LoadByArrayIndex(arrayPtr, index)
+	return state.Memory.LoadByArrayIndex(arrayPtr, index)
 }
 
 func visitComplexBinOp(expr *ssa.BinOp, state *State, ctx *Context) Value {
@@ -596,7 +598,7 @@ func visitComplexBinOp(expr *ssa.BinOp, state *State, ctx *Context) Value {
 		panic("unreachable" + expr.String())
 	}
 
-	result := complexBinOp(left, right, op, ctx)
+	result := complexBinOp(left, right, op, state)
 
 	return result
 }
@@ -608,23 +610,24 @@ func complexBinOp(
 		leftReal ArithmeticValue,
 		leftImag ArithmeticValue,
 		rightReal ArithmeticValue,
-		rightImag ArithmeticValue) (Value, Value), ctx *Context,
+		rightImag ArithmeticValue) (Value, Value),
+	state *State,
 ) *Pointer {
-	leftReal, leftImag := getRealAndImagValues(left, ctx)
-	rightReal, rightImag := getRealAndImagValues(right, ctx)
+	leftReal, leftImag := getRealAndImagValues(left, state)
+	rightReal, rightImag := getRealAndImagValues(right, state)
 
 	resultRealVal, resultImagVal := op(leftReal, leftImag, rightReal, rightImag)
 
-	resultPtr := ctx.Memory.NewPtr("complex")
-	ctx.Memory.StoreField(resultPtr, 0, resultRealVal)
-	ctx.Memory.StoreField(resultPtr, 1, resultImagVal)
+	resultPtr := state.Memory.NewPtr("complex")
+	state.Memory.StoreField(resultPtr, 0, resultRealVal)
+	state.Memory.StoreField(resultPtr, 1, resultImagVal)
 
 	return resultPtr
 }
 
-func getRealAndImagValues(ptr *Pointer, ctx *Context) (ArithmeticValue, ArithmeticValue) {
-	realValue := ctx.Memory.LoadField(ptr, 0)
-	imagValue := ctx.Memory.LoadField(ptr, 1)
+func getRealAndImagValues(ptr *Pointer, state *State) (ArithmeticValue, ArithmeticValue) {
+	realValue := state.Memory.LoadField(ptr, 0)
+	imagValue := state.Memory.LoadField(ptr, 1)
 
 	return realValue.(ArithmeticValue), imagValue.(ArithmeticValue)
 }
@@ -637,13 +640,13 @@ func visitCallInstr(call *ssa.Call, state *State, ctx *Context) []*State {
 		switch castedCallValue.Name() {
 		case "real":
 			argPtr := visitValue(call.Call.Args[0], newState, ctx).(*Pointer)
-			saveToStack(call.Name(), ctx.Memory.LoadField(argPtr, 0), newState)
+			saveToStack(call.Name(), state.Memory.LoadField(argPtr, 0), newState)
 		case "imag":
 			argPtr := visitValue(call.Call.Args[0], newState, ctx).(*Pointer)
-			saveToStack(call.Name(), ctx.Memory.LoadField(argPtr, 1), newState)
+			saveToStack(call.Name(), state.Memory.LoadField(argPtr, 1), newState)
 		case "len":
 			arrayPtr := visitValue(call.Call.Args[0], newState, ctx).(*Pointer)
-			saveToStack(call.Name(), ctx.Memory.GetArrayLen(arrayPtr), newState)
+			saveToStack(call.Name(), state.Memory.GetArrayLen(arrayPtr), newState)
 		}
 	case *ssa.Function:
 		newState = visitFunctionCall(call, newState, ctx)
@@ -675,11 +678,11 @@ func visitFieldAddr(casted *ssa.FieldAddr, state *State, ctx *Context) Value {
 
 	switch castedValue := value.(type) {
 	case *Pointer:
-		field := ctx.Memory.GetFieldPointer(castedValue, fieldIdx)
+		field := state.Memory.GetFieldPointer(castedValue, fieldIdx)
 		return field
 	default:
 		typeName := casted.X.Type().(*types.Pointer).Elem().(*types.Named).String()
-		return ctx.Memory.GetUnsafePointerToField(value, fieldIdx, typeName)
+		return state.Memory.GetUnsafePointerToField(value, fieldIdx, typeName)
 	}
 }
 
@@ -687,17 +690,13 @@ func visitDereference(casted *ssa.UnOp, state *State, ctx *Context) Value {
 	switch casted.X.Type().(type) {
 	case *types.Pointer:
 		ptr := visitValue(casted.X, state, ctx).(*Pointer)
-		return ctx.Memory.Load(ptr)
+		return state.Memory.Load(ptr)
 	default:
 		return visitValue(casted.X, state, ctx)
 	}
 }
 
-func visitParameter(casted *ssa.Parameter, state *State, ctx *Context) Value {
-	return (state.LastStackFrame().Values)[casted.Name()]
-}
-
-func visitConst(value *ssa.Const, ctx *Context) Value {
+func visitConst(value *ssa.Const, ctx *Context, state *State) Value {
 	switch casted := value.Type().(type) {
 	case *types.Basic:
 		switch casted.Kind() {
@@ -734,9 +733,9 @@ func visitConst(value *ssa.Const, ctx *Context) Value {
 		case types.Complex128:
 			compx := value.Complex128()
 			bits := ctx.TypesContext.Float64.Bits
-			ptr := ctx.Memory.NewPtr("complex")
-			ctx.Memory.StoreField(ptr, 0, ctx.CreateFloat(real(compx), bits))
-			ctx.Memory.StoreField(ptr, 1, ctx.CreateFloat(imag(compx), bits))
+			ptr := state.Memory.NewPtr("complex")
+			state.Memory.StoreField(ptr, 0, ctx.CreateFloat(real(compx), bits))
+			state.Memory.StoreField(ptr, 1, ctx.CreateFloat(imag(compx), bits))
 
 			return ptr
 		}

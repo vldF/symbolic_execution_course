@@ -10,6 +10,7 @@ type State struct {
 	StackFrames        []*StackFrame
 	Statement          ssa.Instruction
 	VisitedBasicBlocks []int
+	Memory             *Memory
 }
 
 type StackFrame struct {
@@ -41,11 +42,14 @@ func (state *State) Copy() *State {
 	blocks := make([]int, len(state.VisitedBasicBlocks))
 	copy(blocks, state.VisitedBasicBlocks)
 
+	newMemory := state.Memory.Copy()
+
 	return &State{
 		Constraints:        constraints,
 		StackFrames:        newFrames,
 		Statement:          state.Statement,
 		VisitedBasicBlocks: blocks,
+		Memory:             newMemory,
 	}
 }
 

@@ -13,7 +13,7 @@ type Context struct {
 	ReturnValue  Value
 	States       *heap.Heap[*State]
 	Results      []*State
-	Memory       *Memory
+	InitState    *State
 }
 
 type TypesContext struct {

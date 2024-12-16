@@ -66,9 +66,8 @@ func SymbolicMachineSatTest(
 func symbolicMachineTest(context *interpreter.Context, args map[string]any, expected any) *z3.Solver {
 	solver := context.Solver
 	solver.Reset()
-	addAsserts(context.Results, solver)
-	addArgs(args, context.Results[0], solver, context)
-	addResultConstraint(solver, expected, context)
+	addArgs(args, context.InitState, solver, context)
+	addAsserts(context.Results, solver, expected, context)
 
 	return solver
 }
@@ -93,18 +92,26 @@ func runAnalysisFor(fileName string, functionName string) *interpreter.Context {
 	return interpreter.Interpret(fun, config)
 }
 
-func addAsserts(states []*interpreter.State, solver *z3.Solver) {
+func addAsserts(
+	resultStates []*interpreter.State,
+	solver *z3.Solver,
+	expectedResult any,
+	context *interpreter.Context,
+) {
 	results := make([]z3.Bool, 0)
-	for _, state := range states {
-		if len(state.Constraints) == 0 {
+	for _, resultState := range resultStates {
+		if len(resultState.Constraints) == 0 {
 			continue
 		}
 
-		stateRes := state.Constraints[0].AsBool().AsZ3Value().Value.(z3.Bool)
-		for _, constraint := range state.Constraints[1:] {
+		stateRes := resultState.Constraints[0].AsBool().AsZ3Value().Value.(z3.Bool)
+		for _, constraint := range resultState.Constraints[1:] {
 			asBool := constraint.AsBool().AsZ3Value().Value.(z3.Bool)
 			stateRes = stateRes.And(asBool)
 		}
+
+		retConstraint := getResultConstraint(expectedResult, context, resultState)
+		stateRes = stateRes.And(retConstraint)
 
 		results = append(results, stateRes)
 	}
@@ -119,9 +126,14 @@ func addAsserts(states []*interpreter.State, solver *z3.Solver) {
 	println()
 }
 
-func addArgs(args map[string]any, state *interpreter.State, solver *z3.Solver, ctx *interpreter.Context) {
-	res := make([]z3.Bool, 0)
-	initialStackFrame := state.StackFrames[0]
+func addArgs(
+	args map[string]any,
+	initState *interpreter.State,
+	solver *z3.Solver,
+	ctx *interpreter.Context,
+) {
+	initialStackFrame := initState.StackFrames[0]
+	initMemory := initState.Memory
 
 	for argName, argValue := range args {
 		switch argCasted := argValue.(type) {
@@ -129,12 +141,10 @@ func addArgs(args map[string]any, state *interpreter.State, solver *z3.Solver, c
 			actualArgPtr := initialStackFrame.Values[argName].(*interpreter.Pointer)
 
 			for fieldIdx, expectedVal := range argCasted.fields {
-				actualVal := ctx.Memory.LoadField(actualArgPtr, fieldIdx)
+				actualVal := initMemory.LoadField(actualArgPtr, fieldIdx)
 				expectedZ3Val := GoToZ3Value(ctx, expectedVal)
 				solver.Assert(actualVal.Eq(&expectedZ3Val).AsZ3Value().Value.(z3.Bool))
 			}
-
-			continue
 		case complex128:
 			argPtr := initialStackFrame.Values[argName].(*interpreter.Pointer)
 			r := real(argCasted)
@@ -142,47 +152,39 @@ func addArgs(args map[string]any, state *interpreter.State, solver *z3.Solver, c
 			i := imag(argCasted)
 			expectedImagValue := GoToZ3Value(ctx, i)
 
-			actualRealValue := ctx.Memory.LoadField(argPtr, 0)
-			actualImagValue := ctx.Memory.LoadField(argPtr, 1)
+			actualRealValue := initMemory.LoadField(argPtr, 0)
+			actualImagValue := initMemory.LoadField(argPtr, 1)
 
 			solver.Assert(expectedImagValue.Eq(actualImagValue).AsZ3Value().Value.(z3.Bool))
 			solver.Assert(expectedRealValue.Eq(actualRealValue).AsZ3Value().Value.(z3.Bool))
-			continue
 		case ArrayArg:
 			argPtr := initialStackFrame.Values[argName].(*interpreter.Pointer)
 			for idx, element := range argCasted.elements {
 				idxValue := GoToZ3Value(ctx, idx)
-				valueInMemory := ctx.Memory.LoadByArrayIndex(argPtr, &idxValue)
+				valueInMemory := initMemory.LoadByArrayIndex(argPtr, &idxValue)
 				expectedValue := GoToZ3Value(ctx, element)
 				solver.Assert(valueInMemory.Eq(&expectedValue).AsZ3Value().Value.(z3.Bool))
 			}
 
-			actualLenValue := ctx.Memory.GetArrayLen(argPtr)
+			actualLenValue := initMemory.GetArrayLen(argPtr)
 			expectedLenValue := GoToZ3Value(ctx, len(argCasted.elements))
 			solver.Assert(actualLenValue.Eq(&expectedLenValue).AsZ3Value().Value.(z3.Bool))
-			continue
+		default:
+			argConst := initialStackFrame.Values[argName]
+			z3Value := GoToZ3Value(ctx, argValue)
+			constraint := argConst.Eq(&z3Value).AsZ3Value().Value.(z3.Bool)
+
+			solver.Assert(constraint)
 		}
 
-		argConst := initialStackFrame.Values[argName]
-		z3Value := GoToZ3Value(ctx, argValue)
-		constraint := argConst.Eq(&z3Value).AsZ3Value().Value.(z3.Bool)
-
-		res = append(res, constraint)
 	}
-
-	if len(res) == 0 {
-		return
-	}
-
-	if len(res) == 1 {
-		solver.Assert(res[0])
-		return
-	}
-
-	solver.Assert(res[0].And(res[1:]...))
 }
 
-func addResultConstraint(solver *z3.Solver, expectedResult any, ctx *interpreter.Context) {
+func getResultConstraint(
+	expectedResult any,
+	ctx *interpreter.Context,
+	resultState *interpreter.State,
+) z3.Bool {
 	switch argCasted := expectedResult.(type) {
 	case complex128:
 		resultPtrValue := ctx.ReturnValue
@@ -193,16 +195,19 @@ func addResultConstraint(solver *z3.Solver, expectedResult any, ctx *interpreter
 		i := imag(argCasted)
 		expectedImagValue := GoToZ3Value(ctx, i)
 
-		actualRealValuePtr := ctx.Memory.GetUnsafePointerToField(resultPtrValue, 0, "complex")
-		actualRealValue := ctx.Memory.Load(actualRealValuePtr)
-		actualImagValuePtr := ctx.Memory.GetUnsafePointerToField(resultPtrValue, 1, "complex")
-		actualImagValue := ctx.Memory.Load(actualImagValuePtr)
+		actualRealValuePtr := resultState.Memory.GetUnsafePointerToField(resultPtrValue, 0, "complex")
+		actualRealValue := resultState.Memory.Load(actualRealValuePtr)
+		actualImagValuePtr := resultState.Memory.GetUnsafePointerToField(resultPtrValue, 1, "complex")
+		actualImagValue := resultState.Memory.Load(actualImagValuePtr)
 
-		solver.Assert(expectedImagValue.Eq(actualImagValue).AsZ3Value().Value.(z3.Bool))
-		solver.Assert(expectedRealValue.Eq(actualRealValue).AsZ3Value().Value.(z3.Bool))
+		realEq := expectedRealValue.Eq(actualRealValue).AsZ3Value().Value.(z3.Bool)
+		imagEq := expectedImagValue.Eq(actualImagValue).AsZ3Value().Value.(z3.Bool)
+
+		return realEq.And(imagEq)
 	default:
 		value := GoToZ3Value(ctx, expectedResult)
-		solver.Assert(ctx.ReturnValue.Eq(&value).AsZ3Value().Value.(z3.Bool))
+
+		return ctx.ReturnValue.Eq(&value).AsZ3Value().Value.(z3.Bool)
 	}
 }
 

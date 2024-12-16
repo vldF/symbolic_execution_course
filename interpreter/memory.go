@@ -202,7 +202,7 @@ func (mem *Memory) initMemoryWrapper() {
 	mem.memoryLines["array-len"] = mem.ctx.Z3Context.FreshConst("array-len", arrSort).(z3.Array)
 }
 
-func (mem *Memory) AllocateArray(elementType string) *Pointer {
+func (mem *Memory) AllocateArray(elementType string, strictAllocate bool) *Pointer {
 	mem.initMemoryWrapper()
 
 	wrapperPtr := mem.NewPtr("array-wrapper")
@@ -220,6 +220,10 @@ func (mem *Memory) AllocateArray(elementType string) *Pointer {
 	lineArray := z3Ctx.Const(string(elementsLineSortPtr), lineSort).(z3.Array)
 
 	mem.memoryLines[elementsLineSortPtr] = lineArray
+
+	if strictAllocate {
+		mem.LoadByArrayIndex(wrapperPtr, mem.ctx.CreateInt(0, 64))
+	}
 
 	return wrapperPtr
 }
@@ -361,4 +365,22 @@ func getTypeName(v Value) string {
 	}
 
 	panic("unsupported")
+}
+
+func (mem *Memory) Copy() *Memory {
+	newMemLines := make(map[sortPtr]z3.Array)
+	for ptr, array := range mem.memoryLines {
+		newMemLines[ptr] = array
+	}
+
+	newStructures := make(map[sortPtr]*StructureDescriptor)
+	for ptr, descriptor := range mem.structures {
+		newStructures[ptr] = descriptor
+	}
+
+	return &Memory{
+		ctx:         mem.ctx,
+		memoryLines: newMemLines,
+		structures:  newStructures,
+	}
 }
