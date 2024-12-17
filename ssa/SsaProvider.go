@@ -9,9 +9,12 @@ import (
 	"go/types"
 	"golang.org/x/tools/go/ssa"
 	"golang.org/x/tools/go/ssa/ssautil"
+	"io"
+	"os"
+	"strings"
 )
 
-func GetSsa(code string) *ssa.Package {
+func FromCode(code string) *ssa.Package {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "analyzee.go", code, parser.ParseComments)
 	if err != nil {
@@ -23,6 +26,47 @@ func GetSsa(code string) *ssa.Package {
 	pkg := types.NewPackage("analyzee", "")
 	ssaPackage, _, err := ssautil.BuildPackage(
 		&types.Config{Importer: importer.Default()}, fset, pkg, files, ssa.SanityCheckFunctions|ssa.PrintFunctions)
+	if err != nil {
+		fmt.Println(err)
+		return nil
+	}
+
+	return ssaPackage
+}
+
+func FromFile(filePath string, packageName string) *ssa.Package {
+	pathSep := string(os.PathSeparator)
+	pathParts := strings.Split(filePath, pathSep)
+	fileName := pathParts[len(pathParts)-1]
+
+	file, err := os.Open(filePath)
+	if err != nil {
+		fmt.Println(err)
+		return nil
+	}
+
+	code, err := io.ReadAll(file)
+	if err != nil {
+		fmt.Println(err)
+		return nil
+	}
+
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, fileName, code, parser.ParseComments)
+	if err != nil {
+		fmt.Println(err)
+		return nil
+	}
+
+	files := []*ast.File{f}
+	pkg := types.NewPackage(packageName, "")
+	ssaPackage, _, err := ssautil.BuildPackage(
+		&types.Config{Importer: importer.Default()},
+		fset,
+		pkg,
+		files,
+		ssa.SanityCheckFunctions|ssa.PrintFunctions,
+	)
 	if err != nil {
 		fmt.Println(err)
 		return nil

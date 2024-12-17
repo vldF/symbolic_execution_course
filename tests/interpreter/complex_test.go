@@ -251,7 +251,7 @@ func TestNestedComplexOperations_4(t *testing.T) {
 }
 
 func TestComplexComparison(t *testing.T) {
-	t.Skipped()
+	t.Skipped() // reason: slow test
 	return
 
 	args := [][]complex128{

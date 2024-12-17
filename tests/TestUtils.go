@@ -84,7 +84,7 @@ func runAnalysisFor(fileName string, functionName string) *interpreter.Context {
 		return nil
 	}
 
-	ssa := ssa.GetSsa(string(code))
+	ssa := ssa.FromCode(string(code))
 	fun := ssa.Func(functionName)
 	config := interpreter.InterpreterConfig{PathSelectorMode: interpreter.NURS}
 
