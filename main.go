@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"github.com/urfave/cli/v3"
 	"golang.org/x/tools/go/ssa"
 	"os"
 	"path"
@@ -11,9 +13,44 @@ import (
 )
 
 func main() {
-	packageName := "testdata"
-	baseDirPath := "/Users/vfeofilaktov/GolandProjects/symbolic_execution_course/testgen-inp/"
-	targetDirPath := "/Users/vfeofilaktov/GolandProjects/symbolic_execution_course/generated/"
+	cmd := &cli.Command{
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:     "inputPath",
+				Required: true,
+				Usage:    "set a path with input files in go lang",
+			},
+			&cli.StringFlag{
+				Name:     "inputPackage",
+				Required: true,
+				Usage:    "set a package of input files",
+			},
+
+			&cli.StringFlag{
+				Name:     "outputPackage",
+				Required: true,
+				Usage:    "set a package of generated go files",
+			},
+			&cli.StringFlag{
+				Name:     "outputPath",
+				Required: true,
+				Usage:    "set a package of input files",
+			},
+		},
+
+		Action: run,
+	}
+
+	if err := cmd.Run(context.Background(), os.Args); err != nil {
+		println(err)
+	}
+}
+
+func run(ctx context.Context, command *cli.Command) error {
+	targetDirPath := command.String("outputPath")
+	baseDirPath := command.String("inputPath")
+	inputPackage := command.String("inputPackage")
+	outputPackage := command.String("outputPackage")
 
 	err := os.RemoveAll(targetDirPath)
 	if err != nil {
@@ -21,22 +58,22 @@ func main() {
 
 	err = os.MkdirAll(targetDirPath, os.ModePerm)
 	if err != nil {
-		println(err.Error())
+		return err
 	}
 
 	inputFiles, err := os.ReadDir(baseDirPath)
 	if err != nil {
-		panic(err.Error())
+		return err
 	}
 
 	for _, file := range inputFiles {
 		testMethods := make([]string, 0)
 		inf, err := file.Info()
 		if err != nil {
-			panic(err.Error())
+			return err
 		}
 
-		pkg := ssa2.FromFile(filepath.Join(baseDirPath, inf.Name()), packageName)
+		pkg := ssa2.FromFile(filepath.Join(baseDirPath, inf.Name()), outputPackage)
 
 		functions := getAllFunctions(pkg)
 		hasMathImport := false
@@ -63,7 +100,9 @@ func main() {
 		resultFileText.WriteString("package generated\n")
 		resultFileText.WriteString("\n")
 		resultFileText.WriteString("import (\n")
-		resultFileText.WriteString("    \"symbolic_execution_course/testdata\"\n")
+		resultFileText.WriteString("    \"")
+		resultFileText.WriteString(inputPackage)
+		resultFileText.WriteString("\"\n")
 		resultFileText.WriteString("    \"testing\"\n")
 		if hasMathImport {
 			resultFileText.WriteString("    \"math\"\n")
@@ -81,6 +120,8 @@ func main() {
 			continue
 		}
 	}
+
+	return nil
 }
 
 func getAllFunctions(pkg *ssa.Package) []string {
