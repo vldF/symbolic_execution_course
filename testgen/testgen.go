@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/aclements/go-z3/z3"
 	"golang.org/x/tools/go/ssa"
+	"math"
 	"strconv"
 	"strings"
 	"symbolic_execution_course/interpreter"
@@ -18,14 +19,24 @@ func GenerateTests(function *ssa.Function) []string {
 	initState := dynamicInterpreterCtx.InitState
 	solver := dynamicInterpreterCtx.Solver
 
-	functionArgs := make([]string, 0)
+	functionArgNames := make([]string, 0)
+	functionArgTypes := make([]string, 0)
 	for i := range function.Signature.Params().Len() {
-		functionArgs = append(functionArgs, function.Signature.Params().At(i).Name())
+		param := function.Signature.Params().At(i)
+		functionArgNames = append(functionArgNames, param.Name())
+		functionArgTypes = append(functionArgTypes, param.Type().String())
 	}
 
 	resultStates := dynamicInterpreterCtx.Results
 	for i, resultState := range resultStates {
-		args, err := getArgsByState(resultState, initState, solver, functionArgs)
+		args, err := getArgsByState(
+			resultState,
+			initState,
+			dynamicInterpreterCtx,
+			solver,
+			functionArgNames,
+			functionArgTypes,
+		)
 		if err != nil {
 			println(err)
 			return nil
@@ -40,14 +51,20 @@ func GenerateTests(function *ssa.Function) []string {
 func getArgsByState(
 	state *interpreter.State,
 	initState *interpreter.State,
+	ctx *interpreter.Context,
 	solver *z3.Solver,
 	args []string,
+	artTypes []string,
 ) ([]any, error) {
 	solver.Reset()
 
 	for _, c := range state.Constraints {
 		solver.Assert(c.AsZ3Value().Value.(z3.Bool))
 	}
+
+	println("=====")
+	println(solver.String())
+	println("=====")
 
 	ok, err := solver.Check()
 	if !ok {
@@ -56,48 +73,19 @@ func getArgsByState(
 	}
 
 	model := solver.Model()
+	println(model.String())
+
 	result := make([]any, 0)
-	for _, arg := range args {
+	for i, arg := range args {
+		argType := artTypes[i]
+
 		argValue := initState.GetValueFromStack(arg)
 		z3Value := model.Eval(argValue.AsZ3Value().Value, true)
-		goValue := decodeZ3Value(z3Value)
+		goValue := Z3ToGoValue(state, ctx, model, z3Value, argType)
 		result = append(result, goValue)
 	}
 
 	return result, nil
-}
-
-func decodeZ3Value(value z3.Value) any {
-	switch v := value.(type) {
-	case z3.Bool:
-		val, isLiteral := v.AsBool()
-		if isLiteral {
-			return val
-		}
-		panic("non-literal value")
-	case z3.Int:
-		val, isLiteral, _ := v.AsInt64()
-		if isLiteral {
-			return val
-		}
-		panic("non-literal value")
-
-	case z3.Float:
-		val, isLiteral := v.AsBigFloat()
-		if isLiteral {
-			f, _ := val.Float64()
-			return f
-		}
-		panic("non-literal value")
-	case z3.BV:
-		val, isLiteral, _ := v.AsInt64()
-		if isLiteral {
-			return val
-		}
-		panic("non-literal value")
-	}
-
-	panic("unsupported z3 value")
 }
 
 func anyAsString(v any) string {
@@ -110,11 +98,41 @@ func anyAsString(v any) string {
 		}
 		return "false"
 	case float32:
-		return fmt.Sprintf("%f", v)
+		if math.IsNaN(float64(v)) {
+			return "math.NaN()"
+		}
+
+		if math.IsInf(float64(v), 1) {
+			return "math.Inf(1)"
+		}
+
+		if math.IsInf(float64(v), -1) {
+			return "math.Inf(-1)"
+		}
+
+		return fmt.Sprintf("%E", v)
 	case float64:
-		return fmt.Sprintf("%f", v)
+		if math.IsNaN(v) {
+			return "math.NaN()"
+		}
+
+		if math.IsInf(v, 1) {
+			return "math.Inf(1)"
+		}
+
+		if math.IsInf(v, -1) {
+			return "math.Inf(-1)"
+		}
+
+		println("123: ", fmt.Sprintf("%E", v))
+
+		return fmt.Sprintf("%E", v)
 	case int64:
 		return fmt.Sprintf("%d", v)
+	case complex64:
+		return fmt.Sprintf("complex(%s, %s)", anyAsString(real(v)), anyAsString(imag(v)))
+	case complex128:
+		return fmt.Sprintf("complex(%s, %s)", anyAsString(real(v)), anyAsString(imag(v)))
 	}
 
 	panic("unsupported type")
@@ -150,4 +168,60 @@ func getFunctionCallString(funcPackage string, funcName string, args []any) stri
 	sb.WriteString(")")
 
 	return sb.String()
+}
+
+func Z3ToGoValue(
+	state *interpreter.State,
+	ctx *interpreter.Context,
+	model *z3.Model,
+	v z3.Value,
+	typeName string,
+) any {
+	switch typeName {
+	case "bool":
+		val, isLiteral := v.(z3.Bool).AsBool()
+		if isLiteral {
+			return val
+		}
+		panic("non-literal value")
+	case "int", "int8", "int16", "int32", "int64":
+		val, isLiteral, _ := v.(z3.BV).AsInt64()
+		if isLiteral {
+			return val
+		}
+		panic("non-literal value")
+
+	case "float", "float32", "float64":
+		val, isLiteral := v.(z3.Float).AsBigFloat()
+		if isLiteral {
+			if val == nil {
+				return math.NaN()
+			}
+
+			f, _ := val.Float64()
+			return f
+		}
+		panic("non-literal value")
+	case "complex64", "complex128":
+		ptrValue := &interpreter.Z3Value{
+			Context: ctx,
+			Value:   v,
+			Bits:    64,
+		}
+
+		rPtr := state.Memory.GetUnsafePointerToField(ptrValue, 0, "complex")
+		r := state.Memory.Load(rPtr).AsZ3Value().Value
+		iPtr := state.Memory.GetUnsafePointerToField(ptrValue, 1, "complex")
+		i := state.Memory.Load(iPtr).AsZ3Value().Value
+
+		println("I:", model.Eval(i, true).String())
+		println("R:", model.Eval(r, true).String())
+
+		realFloat := Z3ToGoValue(state, ctx, model, model.Eval(r, true), "float64").(float64)
+		imagFloat := Z3ToGoValue(state, ctx, model, model.Eval(i, true), "float64").(float64)
+
+		return complex(realFloat, imagFloat)
+	}
+
+	panic("unsupported type")
 }
