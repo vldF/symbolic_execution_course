@@ -133,6 +133,17 @@ func anyAsString(v any) string {
 		return fmt.Sprintf("complex(%s, %s)", anyAsString(real(v)), anyAsString(imag(v)))
 	case complex128:
 		return fmt.Sprintf("complex(%s, %s)", anyAsString(real(v)), anyAsString(imag(v)))
+	case ArrayArgDescriptor:
+		var sb strings.Builder
+		sb.WriteString("[]")
+		sb.WriteString(v.elementTypeName)
+		sb.WriteString("{")
+		for _, element := range v.elements {
+			sb.WriteString(anyAsString(element))
+			sb.WriteString(", ")
+		}
+		sb.WriteString("}")
+		return sb.String()
 	}
 
 	panic("unsupported type")
@@ -189,7 +200,7 @@ func Z3ToGoValue(
 		if isLiteral {
 			return val
 		}
-		panic("non-literal value")
+		panic("non-literal value " + v.String())
 
 	case "float", "float32", "float64":
 		val, isLiteral := v.(z3.Float).AsBigFloat()
@@ -223,5 +234,35 @@ func Z3ToGoValue(
 		return complex(realFloat, imagFloat)
 	}
 
+	switch {
+	case strings.HasPrefix(typeName, "[]"):
+		elementTypeName := strings.TrimPrefix(typeName, "[]")
+		arrayPtrValue := &interpreter.Z3Value{
+			Context: ctx,
+			Value:   v,
+			Bits:    64,
+		}
+		arrayPtr := state.Memory.GetUnsafeArrayPointer(arrayPtrValue, elementTypeName)
+
+		arrayLenValue := state.Memory.GetArrayLen(arrayPtr)
+		arrayLenZ3Value := model.Eval(arrayLenValue.AsZ3Value().Value, true)
+		arrayLen := Z3ToGoValue(state, ctx, model, arrayLenZ3Value, "int").(int64)
+
+		elements := make([]any, arrayLen)
+		for i := range arrayLen {
+			idx := ctx.CreateInt(i, 64)
+			elementValue := state.Memory.LoadByArrayIndex(arrayPtr, idx).AsZ3Value().Value
+			elementZ3Value := model.Eval(elementValue, true)
+			elements[i] = Z3ToGoValue(state, ctx, model, elementZ3Value, elementTypeName)
+		}
+
+		return ArrayArgDescriptor{elements: elements, elementTypeName: elementTypeName}
+	}
+
 	panic("unsupported type")
+}
+
+type ArrayArgDescriptor struct {
+	elements        []any
+	elementTypeName string
 }

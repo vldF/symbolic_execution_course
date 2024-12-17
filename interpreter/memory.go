@@ -384,3 +384,13 @@ func (mem *Memory) Copy() *Memory {
 		structures:  newStructures,
 	}
 }
+
+func (mem *Memory) GetUnsafeArrayPointer(value Value, elementType string) *Pointer {
+	ptr := &Pointer{
+		ctx:              mem.ctx,
+		ptr:              value,
+		sPtr:             "array-wrapper",
+		arrayElemSortPtr: sortPtr(elementType),
+	}
+	return ptr
+}
