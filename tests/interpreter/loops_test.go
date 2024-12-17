@@ -1,15 +1,16 @@
-package tests
+package interpreter
 
 import (
 	"fmt"
 	"symbolic_execution_course/testdata"
+	"symbolic_execution_course/tests"
 	"testing"
 )
 
 func TestConstantLoop(t *testing.T) {
 	args := []int{1, -1, 2, 15, 99, 1000}
 
-	ctx := PrepareTest("loops", "ConstantLoop")
+	ctx := tests.PrepareTest("loops", "ConstantLoop")
 	for _, a := range args {
 		t.Run(fmt.Sprintf("%d", a), func(t *testing.T) {
 			args := make(map[string]any)
@@ -17,8 +18,8 @@ func TestConstantLoop(t *testing.T) {
 
 			expected := testdata.ConstantLoop(a)
 
-			SymbolicMachineSatTest(ctx, args, expected, t)
-			SymbolicMachineUnsatTest(ctx, args, -1, t)
+			tests.SymbolicMachineSatTest(ctx, args, expected, t)
+			tests.SymbolicMachineUnsatTest(ctx, args, -1, t)
 		})
 	}
 }
@@ -26,7 +27,7 @@ func TestConstantLoop(t *testing.T) {
 func TestDynamicLoop(t *testing.T) {
 	args := []int{1, -1, 2, 20}
 
-	ctx := PrepareTest("loops", "DynamicLoop")
+	ctx := tests.PrepareTest("loops", "DynamicLoop")
 	for _, a := range args {
 		t.Run(fmt.Sprintf("%d", a), func(t *testing.T) {
 			args := make(map[string]any)
@@ -34,8 +35,8 @@ func TestDynamicLoop(t *testing.T) {
 
 			expected := testdata.DynamicLoop(a)
 
-			SymbolicMachineSatTest(ctx, args, expected, t)
-			SymbolicMachineUnsatTest(ctx, args, -1, t)
+			tests.SymbolicMachineSatTest(ctx, args, expected, t)
+			tests.SymbolicMachineUnsatTest(ctx, args, -1, t)
 		})
 	}
 }

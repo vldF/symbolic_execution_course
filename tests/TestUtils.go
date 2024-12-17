@@ -73,7 +73,7 @@ func symbolicMachineTest(context *interpreter.Context, args map[string]any, expe
 }
 
 func runAnalysisFor(fileName string, functionName string) *interpreter.Context {
-	sourceFile, fileErr := os.Open("../testdata/" + fileName + ".go")
+	sourceFile, fileErr := os.Open("../../testdata/" + fileName + ".go")
 	if fileErr != nil {
 		fmt.Printf("Error opening test file: %v\n", fileErr)
 		return nil
@@ -140,7 +140,7 @@ func addArgs(
 		case StructArg:
 			actualArgPtr := initialStackFrame.Values[argName].(*interpreter.Pointer)
 
-			for fieldIdx, expectedVal := range argCasted.fields {
+			for fieldIdx, expectedVal := range argCasted.Fields {
 				actualVal := initMemory.LoadField(actualArgPtr, fieldIdx)
 				expectedZ3Val := GoToZ3Value(ctx, expectedVal)
 				solver.Assert(actualVal.Eq(&expectedZ3Val).AsZ3Value().Value.(z3.Bool))
@@ -159,7 +159,7 @@ func addArgs(
 			solver.Assert(expectedRealValue.Eq(actualRealValue).AsZ3Value().Value.(z3.Bool))
 		case ArrayArg:
 			argPtr := initialStackFrame.Values[argName].(*interpreter.Pointer)
-			for idx, element := range argCasted.elements {
+			for idx, element := range argCasted.Elements {
 				idxValue := GoToZ3Value(ctx, idx)
 				valueInMemory := initMemory.LoadByArrayIndex(argPtr, &idxValue)
 				expectedValue := GoToZ3Value(ctx, element)
@@ -167,7 +167,7 @@ func addArgs(
 			}
 
 			actualLenValue := initMemory.GetArrayLen(argPtr)
-			expectedLenValue := GoToZ3Value(ctx, len(argCasted.elements))
+			expectedLenValue := GoToZ3Value(ctx, len(argCasted.Elements))
 			solver.Assert(actualLenValue.Eq(&expectedLenValue).AsZ3Value().Value.(z3.Bool))
 		default:
 			argConst := initialStackFrame.Values[argName]
@@ -212,11 +212,11 @@ func getResultConstraint(
 }
 
 type StructArg struct {
-	fields map[int]any
+	Fields map[int]any
 }
 
 type ArrayArg struct {
-	elements []any
+	Elements []any
 }
 
 func GoToZ3Value(ctx *interpreter.Context, v any) interpreter.Z3Value {
