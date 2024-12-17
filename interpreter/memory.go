@@ -22,6 +22,7 @@ type Pointer struct {
 
 type StructureDescriptor struct {
 	fields map[int]sortPtr
+	types  map[int]string
 }
 
 var basePtrs = make(map[sortPtr]int)
@@ -107,14 +108,18 @@ func (mem *Memory) NewStruct(name string, fields map[int]string) {
 	}
 
 	fieldsInDescriptor := make(map[int]sortPtr)
-	for fieldName, fieldType := range fields {
-		fieldSort := sortPtr(name + "-" + strconv.Itoa(fieldName))
-		fieldsInDescriptor[fieldName] = fieldSort
+	typesInDescriptor := make(map[int]string)
+	for fieldIdx, fieldType := range fields {
+		fieldSort := sortPtr(name + "-" + strconv.Itoa(fieldIdx))
+		fieldsInDescriptor[fieldIdx] = fieldSort
 		mem.initLineFor(fieldSort, fieldType)
+
+		typesInDescriptor[fieldIdx] = fieldType
 	}
 
 	structDescriptor := &StructureDescriptor{
 		fields: fieldsInDescriptor,
+		types:  typesInDescriptor,
 	}
 
 	mem.structures[structSortPtr] = structDescriptor
@@ -190,6 +195,24 @@ func (mem *Memory) GetFieldPointer(structPtr *Pointer, fieldIdx int) Value {
 		ptr:  structPtr.ptr,
 		sPtr: fieldSortPtr,
 	}
+}
+
+func (mem *Memory) GetFieldType(structPtr *Pointer, fieldIdx int) string {
+	if _, ok := mem.structures[structPtr.sPtr]; !ok {
+		panic("unknown structure " + structPtr.sPtr)
+	}
+
+	structDescr := mem.structures[structPtr.sPtr]
+	return structDescr.types[fieldIdx]
+}
+
+func (mem *Memory) GetFieldCount(structPtr *Pointer) int {
+	if _, ok := mem.structures[structPtr.sPtr]; !ok {
+		panic("unknown structure " + structPtr.sPtr)
+	}
+
+	structDescr := mem.structures[structPtr.sPtr]
+	return len(structDescr.types)
 }
 
 func (mem *Memory) initMemoryWrapper() {

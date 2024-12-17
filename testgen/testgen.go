@@ -3,8 +3,10 @@ package testgen
 import (
 	"fmt"
 	"github.com/aclements/go-z3/z3"
+	"go/types"
 	"golang.org/x/tools/go/ssa"
 	"math"
+	"math/big"
 	"strconv"
 	"strings"
 	"symbolic_execution_course/interpreter"
@@ -20,11 +22,11 @@ func GenerateTests(function *ssa.Function) []string {
 	solver := dynamicInterpreterCtx.Solver
 
 	functionArgNames := make([]string, 0)
-	functionArgTypes := make([]string, 0)
+	functionArgTypes := make([]types.Type, 0)
 	for i := range function.Signature.Params().Len() {
 		param := function.Signature.Params().At(i)
 		functionArgNames = append(functionArgNames, param.Name())
-		functionArgTypes = append(functionArgTypes, param.Type().String())
+		functionArgTypes = append(functionArgTypes, param.Type())
 	}
 
 	resultStates := dynamicInterpreterCtx.Results
@@ -54,17 +56,13 @@ func getArgsByState(
 	ctx *interpreter.Context,
 	solver *z3.Solver,
 	args []string,
-	artTypes []string,
-) ([]any, error) {
+	artTypes []types.Type,
+) ([]string, error) {
 	solver.Reset()
 
 	for _, c := range state.Constraints {
 		solver.Assert(c.AsZ3Value().Value.(z3.Bool))
 	}
-
-	println("=====")
-	println(solver.String())
-	println("=====")
 
 	ok, err := solver.Check()
 	if !ok {
@@ -73,83 +71,164 @@ func getArgsByState(
 	}
 
 	model := solver.Model()
-	println(model.String())
 
-	result := make([]any, 0)
+	result := make([]string, 0)
 	for i, arg := range args {
 		argType := artTypes[i]
 
 		argValue := initState.GetValueFromStack(arg)
 		z3Value := model.Eval(argValue.AsZ3Value().Value, true)
-		goValue := Z3ToGoValue(state, ctx, model, z3Value, argType)
-		result = append(result, goValue)
+		goValue := GetArg(state, ctx, model, z3Value, argType)
+		result = append(result, goValue.String())
 	}
 
 	return result, nil
 }
 
-func anyAsString(v any) string {
-	switch v := v.(type) {
-	case string:
-		return v
-	case bool:
-		if v {
-			return "true"
+func GetArg(
+	resultState *interpreter.State,
+	ctx *interpreter.Context,
+	model *z3.Model,
+	value z3.Value,
+	argType types.Type,
+) fmt.Stringer {
+	memory := resultState.Memory
+
+	switch argType := argType.(type) {
+	case *types.Basic:
+		switch argType.Kind() {
+		case types.Bool:
+			val, isLiteral := value.(z3.Bool).AsBool()
+			if isLiteral {
+				switch {
+				case val:
+					return &PrimitiveArgument{stringValue: "true"}
+				default:
+					return &PrimitiveArgument{stringValue: "false"}
+				}
+			}
+			panic("non-literal value")
+
+		case types.Float32, types.Float64:
+			v := model.Eval(value, true)
+			val, isLiteral := v.(z3.Float).AsBigFloat()
+			if isLiteral {
+				return floatAsArg(val)
+			}
+			panic("non-literal value")
+		case types.Int, types.Int8, types.Int16, types.Int32, types.Int64:
+			v := model.Eval(value, true)
+			val, isLiteral, _ := v.(z3.BV).AsInt64()
+			if isLiteral {
+				return &PrimitiveArgument{stringValue: fmt.Sprintf("%d", val)}
+			}
+			panic("non-literal value")
+		case types.String:
+			return &PrimitiveArgument{stringValue: "\"unsupported\""}
+		case types.Complex64, types.Complex128:
+			ptrValue := &interpreter.Z3Value{
+				Context: ctx,
+				Value:   value,
+				Bits:    64,
+			}
+
+			rPtr := memory.GetUnsafePointerToField(ptrValue, 0, "complex")
+			rValue := memory.Load(rPtr).AsZ3Value().Value
+			r, rIsLiteral := model.Eval(rValue, true).(z3.Float).AsBigFloat()
+			iPtr := memory.GetUnsafePointerToField(ptrValue, 1, "complex")
+			iValue := memory.Load(iPtr).AsZ3Value().Value
+			i, iIsLiteral := model.Eval(iValue, true).(z3.Float).AsBigFloat()
+
+			if rIsLiteral && iIsLiteral {
+				return &ComplexArgument{
+					real: floatAsArg(r).stringValue,
+					imag: floatAsArg(i).stringValue,
+				}
+			}
+
+			panic("non-literal value")
+		default:
+			panic("unsupported basic type " + argType.String())
 		}
-		return "false"
-	case float32:
-		if math.IsNaN(float64(v)) {
-			return "math.NaN()"
+	case *types.Pointer:
+		return &PointerArgument{innerArgument: GetArg(resultState, ctx, model, value, argType.Elem())}
+	case *types.Slice:
+		elemType := argType.Elem()
+		ptrValue := &interpreter.Z3Value{
+			Context: ctx,
+			Value:   value,
+			Bits:    64,
+		}
+		elemTypeName := elemType.String()
+		if strings.HasPrefix(elemTypeName, "*") {
+			elemTypeName = strings.TrimPrefix(elemTypeName, "*")
 		}
 
-		if math.IsInf(float64(v), 1) {
-			return "math.Inf(1)"
+		arrayPtr := memory.GetUnsafeArrayPointer(ptrValue, elemTypeName)
+		arrayLenValue := memory.GetArrayLen(arrayPtr).AsZ3Value().Value
+		arrayLen, isLiteral, _ := model.Eval(arrayLenValue, true).(z3.BV).AsInt64()
+		if !isLiteral {
+			panic("unknown array len")
 		}
 
-		if math.IsInf(float64(v), -1) {
-			return "math.Inf(-1)"
+		arrayElements := make([]fmt.Stringer, arrayLen)
+		for i := range arrayLen {
+			indexValue := ctx.CreateInt(i, 64)
+			elementSymbolicValue := memory.LoadByArrayIndex(arrayPtr, indexValue).AsZ3Value().Value
+			arrayElements[i] = GetArg(resultState, ctx, model, elementSymbolicValue, elemType)
 		}
 
-		return fmt.Sprintf("%E", v)
-	case float64:
-		if math.IsNaN(v) {
-			return "math.NaN()"
-		}
+		return &ArrayArgument{elementType: elemType.String(), values: arrayElements}
+	case *types.Named:
+		argTypeName := argType.String()
+		argValue := argType.Underlying()
+		switch argValue := argValue.(type) {
+		case *types.Struct:
+			fieldsCount := argValue.NumFields()
+			elements := make(map[string]fmt.Stringer, fieldsCount)
+			for fieldI := range fieldsCount {
+				field := argValue.Field(fieldI)
+				fieldName := field.Name()
+				fieldType := field.Type()
+				valueValue := &interpreter.Z3Value{
+					Context: ctx,
+					Value:   value,
+					Bits:    64,
+				}
+				structPtrValuePtr := memory.GetUnsafePointerToField(valueValue, fieldI, argTypeName)
+				structPtrValue := memory.Load(structPtrValuePtr).AsZ3Value().Value
 
-		if math.IsInf(v, 1) {
-			return "math.Inf(1)"
-		}
+				elements[fieldName] = GetArg(resultState, ctx, model, structPtrValue, fieldType)
+			}
 
-		if math.IsInf(v, -1) {
-			return "math.Inf(-1)"
+			return &StructArgument{
+				name:     argTypeName,
+				elements: elements,
+			}
 		}
-
-		println("123: ", fmt.Sprintf("%E", v))
-
-		return fmt.Sprintf("%E", v)
-	case int64:
-		return fmt.Sprintf("%d", v)
-	case complex64:
-		return fmt.Sprintf("complex(%s, %s)", anyAsString(real(v)), anyAsString(imag(v)))
-	case complex128:
-		return fmt.Sprintf("complex(%s, %s)", anyAsString(real(v)), anyAsString(imag(v)))
-	case ArrayArgDescriptor:
-		var sb strings.Builder
-		sb.WriteString("[]")
-		sb.WriteString(v.elementTypeName)
-		sb.WriteString("{")
-		for _, element := range v.elements {
-			sb.WriteString(anyAsString(element))
-			sb.WriteString(", ")
-		}
-		sb.WriteString("}")
-		return sb.String()
 	}
 
 	panic("unsupported type")
 }
 
-func getTestCode(funcPackage string, funcName string, suffix int, args []any) string {
+func floatAsArg(float *big.Float) *PrimitiveArgument {
+	if float == nil {
+		return &PrimitiveArgument{stringValue: "math.NaN()"}
+	}
+	valAsFloat, _ := float.Float64()
+
+	switch {
+	case math.IsInf(valAsFloat, 1):
+		return &PrimitiveArgument{stringValue: "math.Inf(1)"}
+	case math.IsInf(valAsFloat, -1):
+		return &PrimitiveArgument{stringValue: "math.Inf(-11)"}
+	case math.IsNaN(valAsFloat):
+		return &PrimitiveArgument{stringValue: "math.NaN()"}
+	}
+	return &PrimitiveArgument{stringValue: fmt.Sprintf("%E", valAsFloat)}
+}
+
+func getTestCode(funcPackage string, funcName string, suffix int, args []string) string {
 	var sb strings.Builder
 	sb.WriteString("func Test")
 	sb.WriteString(funcName)
@@ -163,7 +242,7 @@ func getTestCode(funcPackage string, funcName string, suffix int, args []any) st
 	return sb.String()
 }
 
-func getFunctionCallString(funcPackage string, funcName string, args []any) string {
+func getFunctionCallString(funcPackage string, funcName string, args []string) string {
 	var sb strings.Builder
 
 	sb.WriteString(funcPackage)
@@ -172,97 +251,11 @@ func getFunctionCallString(funcPackage string, funcName string, args []any) stri
 	sb.WriteString("(")
 
 	for _, a := range args {
-		sb.WriteString(anyAsString(a))
+		sb.WriteString(a)
 		sb.WriteString(", ")
 	}
 
 	sb.WriteString(")")
 
 	return sb.String()
-}
-
-func Z3ToGoValue(
-	state *interpreter.State,
-	ctx *interpreter.Context,
-	model *z3.Model,
-	v z3.Value,
-	typeName string,
-) any {
-	switch typeName {
-	case "bool":
-		val, isLiteral := v.(z3.Bool).AsBool()
-		if isLiteral {
-			return val
-		}
-		panic("non-literal value")
-	case "int", "int8", "int16", "int32", "int64":
-		val, isLiteral, _ := v.(z3.BV).AsInt64()
-		if isLiteral {
-			return val
-		}
-		panic("non-literal value " + v.String())
-
-	case "float", "float32", "float64":
-		val, isLiteral := v.(z3.Float).AsBigFloat()
-		if isLiteral {
-			if val == nil {
-				return math.NaN()
-			}
-
-			f, _ := val.Float64()
-			return f
-		}
-		panic("non-literal value")
-	case "complex64", "complex128":
-		ptrValue := &interpreter.Z3Value{
-			Context: ctx,
-			Value:   v,
-			Bits:    64,
-		}
-
-		rPtr := state.Memory.GetUnsafePointerToField(ptrValue, 0, "complex")
-		r := state.Memory.Load(rPtr).AsZ3Value().Value
-		iPtr := state.Memory.GetUnsafePointerToField(ptrValue, 1, "complex")
-		i := state.Memory.Load(iPtr).AsZ3Value().Value
-
-		println("I:", model.Eval(i, true).String())
-		println("R:", model.Eval(r, true).String())
-
-		realFloat := Z3ToGoValue(state, ctx, model, model.Eval(r, true), "float64").(float64)
-		imagFloat := Z3ToGoValue(state, ctx, model, model.Eval(i, true), "float64").(float64)
-
-		return complex(realFloat, imagFloat)
-	}
-
-	switch {
-	case strings.HasPrefix(typeName, "[]"):
-		elementTypeName := strings.TrimPrefix(typeName, "[]")
-		arrayPtrValue := &interpreter.Z3Value{
-			Context: ctx,
-			Value:   v,
-			Bits:    64,
-		}
-		arrayPtr := state.Memory.GetUnsafeArrayPointer(arrayPtrValue, elementTypeName)
-
-		arrayLenValue := state.Memory.GetArrayLen(arrayPtr)
-		arrayLenZ3Value := model.Eval(arrayLenValue.AsZ3Value().Value, true)
-		arrayLen := Z3ToGoValue(state, ctx, model, arrayLenZ3Value, "int").(int64)
-
-		elements := make([]any, arrayLen)
-		for i := range arrayLen {
-			idx := ctx.CreateInt(i, 64)
-			elementValue := state.Memory.LoadByArrayIndex(arrayPtr, idx).AsZ3Value().Value
-			elementZ3Value := model.Eval(elementValue, true)
-			elements[i] = Z3ToGoValue(state, ctx, model, elementZ3Value, elementTypeName)
-		}
-
-		return ArrayArgDescriptor{elements: elements, elementTypeName: elementTypeName}
-	}
-
-	panic("unsupported type")
-}
-
-type ArrayArgDescriptor struct {
-	elements        []any
-	elementTypeName string
 }

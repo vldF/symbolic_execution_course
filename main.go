@@ -39,14 +39,21 @@ func main() {
 		pkg := ssa2.FromFile(filepath.Join(baseDirPath, inf.Name()), packageName)
 
 		functions := getAllFunctions(pkg)
+		hasMathImport := false
 		for _, functionName := range functions {
 			funcSsa := pkg.Func(functionName)
 			res := testgen.GenerateTests(funcSsa)
-			for _, res := range res {
-				println(res)
+			for _, resMethod := range res {
+				if strings.Contains(resMethod, "math") {
+					hasMathImport = true
+				}
 			}
 
 			testMethods = append(testMethods, res...)
+		}
+
+		if len(testMethods) == 0 {
+			continue
 		}
 
 		fileName := strings.TrimSuffix(file.Name(), ".go")
@@ -54,6 +61,14 @@ func main() {
 
 		var resultFileText strings.Builder
 		resultFileText.WriteString("package generated\n")
+		resultFileText.WriteString("\n")
+		resultFileText.WriteString("import (\n")
+		resultFileText.WriteString("    \"symbolic_execution_course/testdata\"\n")
+		resultFileText.WriteString("    \"testing\"\n")
+		if hasMathImport {
+			resultFileText.WriteString("    \"math\"\n")
+		}
+		resultFileText.WriteString(")\n")
 		resultFileText.WriteString("\n")
 
 		for _, method := range testMethods {

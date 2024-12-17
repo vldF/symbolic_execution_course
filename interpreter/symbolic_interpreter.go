@@ -255,8 +255,11 @@ func visitIndexAddrInstr(casted *ssa.IndexAddr, state *State, ctx *Context) []*S
 	arrayPtr := visitValue(casted.X, newState, ctx).(*Pointer)
 	index := visitValue(casted.Index, newState, ctx)
 	arrayElementPointer := newState.Memory.GetArrayElementPointer(arrayPtr, index)
+	arrayLen := newState.Memory.GetArrayLen(arrayPtr)
 
 	saveToStack(casted.Name(), arrayElementPointer, newState)
+	arrayLenIsGreaterThanIndexConstr := arrayLen.(ArithmeticValue).Gt(index.(ArithmeticValue))
+	newState.Constraints = append(state.Constraints, arrayLenIsGreaterThanIndexConstr)
 
 	return []*State{newState}
 }
