@@ -1,1 +1,4 @@
 .idea
+debug.smt2
+/testgen-inp/
+/generated/

@@ -1,6 +1,6 @@
 package testdata
 
-func compareElement(array []int, index int, value int) int {
+func CompareElement(array []int, index int, value int) int {
 	if index < 0 || index >= len(array) {
 		return -1 // Индекс вне границ
 	}
@@ -18,7 +18,7 @@ type Person struct {
 	Age  int
 }
 
-func compareAge(people []*Person, index int, value int) int {
+func CompareAge(people []*Person, index int, value int) int {
 	if index < 0 || index >= len(people) {
 		return -1 // Индекс вне границ
 	}
