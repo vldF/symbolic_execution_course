@@ -7,10 +7,13 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	ssa2 "symbolic_execution_course/ssa"
 	"symbolic_execution_course/testgen"
 )
+
+var intrinsicFunctions = []string{"Assume", "MakeSymbolic"}
 
 func main() {
 	cmd := &cli.Command{
@@ -36,6 +39,11 @@ func main() {
 				Required: true,
 				Usage:    "set a package of input files",
 			},
+			&cli.StringFlag{
+				Name:     "intrinsicsPath",
+				Required: false,
+				Usage:    "set a path to the intrinsics .go file",
+			},
 		},
 
 		Action: run,
@@ -51,6 +59,7 @@ func run(ctx context.Context, command *cli.Command) error {
 	baseDirPath := command.String("inputPath")
 	inputPackage := command.String("inputPackage")
 	outputPackage := command.String("outputPackage")
+	intrinsicsPath := command.String("intrinsicsPath")
 
 	err := os.RemoveAll(targetDirPath)
 	if err != nil {
@@ -73,7 +82,7 @@ func run(ctx context.Context, command *cli.Command) error {
 			return err
 		}
 
-		pkg := ssa2.FromFile(filepath.Join(baseDirPath, inf.Name()), outputPackage)
+		pkg := ssa2.FromFile(filepath.Join(baseDirPath, inf.Name()), outputPackage, intrinsicsPath)
 
 		functions := getAllFunctions(pkg)
 		hasMathImport := false
@@ -129,7 +138,13 @@ func getAllFunctions(pkg *ssa.Package) []string {
 	for _, member := range pkg.Members {
 		switch castedMember := member.(type) {
 		case *ssa.Function:
-			firstLetter := string([]rune(castedMember.Name())[0])
+			functionName := castedMember.Name()
+
+			if slices.Contains(intrinsicFunctions, functionName) {
+				continue
+			}
+
+			firstLetter := string([]rune(functionName)[0])
 			if castedMember.Synthetic == "" && strings.ToUpper(firstLetter) == firstLetter {
 				result = append(result, member.(*ssa.Function).Name())
 			}

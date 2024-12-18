@@ -137,57 +137,9 @@ func addInitState(function *ssa.Function, ctx *Context) {
 
 	for _, param := range function.Params {
 		name := param.Name()
-		sort := ctx.TypeToSort(param.Type())
-		switch casted := param.Type().(type) {
-		case *types.Basic:
-			switch casted.Kind() {
-			case types.Complex128, types.Complex64, types.UntypedComplex:
-				typeName := "complex"
-
-				fields := map[int]string{
-					0: "float64",
-					1: "float64",
-				}
-
-				memory.NewStruct(typeName, fields)
-				ptr := memory.NewPtr(typeName)
-				initialFrame.Values[name] = ptr
-			default:
-				bits := ctx.TypesContext.GetPrimitiveTypeBits(casted.String())
-				val := Z3Value{
-					Context: ctx,
-					Value:   ctx.Z3Context.Const(name, sort),
-					Bits:    bits,
-				}
-
-				initialFrame.Values[name] = &val
-			}
-		case *types.Named:
-			typeName := GetTypeName(casted)
-			struct_ := casted.Underlying().(*types.Struct)
-
-			fields := make(map[int]string)
-			fieldsCount := struct_.NumFields()
-			for i := 0; i < fieldsCount; i++ {
-				fields[i] = GetTypeName(struct_.Field(i).Type())
-			}
-
-			memory.NewStruct(typeName, fields)
-			initialFrame.Values[name] = memory.NewPtr(typeName)
-		case *types.Slice:
-			typeName := GetTypeName(casted.Elem())
-			arrPtr := memory.AllocateArray(typeName, true)
-			initialFrame.Values[name] = arrPtr
-
-			elemType := casted.Elem()
-			switch castedElemType := elemType.(type) {
-			case *types.Named:
-				memory.NewStruct(GetTypeName(castedElemType), GetStructureFields(castedElemType))
-			case *types.Pointer:
-				elemType = castedElemType.Elem()
-				memory.NewStruct(GetTypeName(castedElemType), GetStructureFields(elemType.(*types.Named)))
-			}
-		}
+		t := param.Type()
+		val := newValueOfType(ctx, t, memory, name)
+		initialFrame.Values[name] = val
 	}
 
 	initState := &State{
@@ -201,6 +153,62 @@ func addInitState(function *ssa.Function, ctx *Context) {
 
 	ctx.States.Insert(initState)
 	ctx.InitState = initState
+}
+
+func newValueOfType(ctx *Context, tpe types.Type, memory *Memory, name string) Value {
+	sort := ctx.TypeToSort(tpe)
+	switch casted := tpe.(type) {
+	case *types.Basic:
+		switch casted.Kind() {
+		case types.Complex128, types.Complex64, types.UntypedComplex:
+			typeName := "complex"
+
+			fields := map[int]string{
+				0: "float64",
+				1: "float64",
+			}
+
+			memory.NewStruct(typeName, fields)
+			ptr := memory.NewPtr(typeName)
+			return ptr
+		default:
+			bits := ctx.TypesContext.GetPrimitiveTypeBits(casted.String())
+			val := Z3Value{
+				Context: ctx,
+				Value:   ctx.Z3Context.FreshConst(name, sort),
+				Bits:    bits,
+			}
+
+			return &val
+		}
+	case *types.Named:
+		typeName := GetTypeName(casted)
+		struct_ := casted.Underlying().(*types.Struct)
+
+		fields := make(map[int]string)
+		fieldsCount := struct_.NumFields()
+		for i := 0; i < fieldsCount; i++ {
+			fields[i] = GetTypeName(struct_.Field(i).Type())
+		}
+
+		memory.NewStruct(typeName, fields)
+		return memory.NewPtr(typeName)
+	case *types.Slice:
+		typeName := GetTypeName(casted.Elem())
+		arrPtr := memory.AllocateArray(typeName, true)
+
+		elemType := casted.Elem()
+		switch castedElemType := elemType.(type) {
+		case *types.Named:
+			memory.NewStruct(GetTypeName(castedElemType), GetStructureFields(castedElemType))
+		case *types.Pointer:
+			elemType = castedElemType.Elem()
+			memory.NewStruct(GetTypeName(castedElemType), GetStructureFields(elemType.(*types.Named)))
+		}
+
+		return arrPtr
+	}
+	return nil
 }
 
 func visitInstruction(instr ssa.Instruction, prevState *State, ctx *Context) []*State {
@@ -659,18 +667,59 @@ func visitCallInstr(call *ssa.Call, state *State, ctx *Context) []*State {
 }
 
 func visitFunctionCall(call *ssa.Call, state *State, ctx *Context) *State {
-	newState := state.Copy()
-	newState.PushStackFrame(call)
-
 	function := call.Call.Value.(*ssa.Function)
 
-	functionArgs := function.Signature.Params()
-	for i := range functionArgs.Len() {
-		arg := functionArgs.At(i)
-		saveToStack(arg.Name(), visitValue(call.Call.Args[i], state, ctx), newState)
+	switch function.Object().Name() {
+	case "Assume":
+		return visitAssumeFunctionCall(call, state, ctx)
+	case "MakeSymbolic":
+		return visitMakeSymbolicFunctionCall(call, state, ctx)
+	default:
+		newState := state.Copy()
+		newState.PushStackFrame(call)
+
+		functionArgs := function.Signature.Params()
+		for i := range functionArgs.Len() {
+			arg := functionArgs.At(i)
+			saveToStack(arg.Name(), visitValue(call.Call.Args[i], state, ctx), newState)
+		}
+
+		newState.Statement = function.Blocks[0].Instrs[0]
+
+		return newState
+	}
+}
+
+func visitAssumeFunctionCall(call *ssa.Call, state *State, ctx *Context) *State {
+	newState := state.Copy()
+
+	args := call.Call.Args
+
+	for _, arg := range args {
+		if _, ok := arg.Type().(*types.Basic); !ok {
+			continue
+		}
+
+		castedType := arg.Type().(*types.Basic)
+
+		if castedType.Kind() != types.Bool {
+			continue
+		}
+
+		predicate := visitValue(arg, newState, ctx).(BoolValue)
+		newState.Constraints = append(newState.Constraints, predicate)
 	}
 
-	newState.Statement = function.Blocks[0].Instrs[0]
+	return newState
+}
+
+func visitMakeSymbolicFunctionCall(call *ssa.Call, state *State, ctx *Context) *State {
+	newState := state.Copy()
+
+	symbolType := call.Type()
+	name := call.Name()
+	val := newValueOfType(ctx, symbolType.Underlying(), state.Memory, name)
+	saveToStack(name, val, newState)
 
 	return newState
 }
@@ -755,7 +804,7 @@ func createPossibleNextStates(state *State) []*State {
 
 	if idx+1 >= len(block.Instrs) {
 		switch state.Statement.(type) {
-		case *ssa.Return:
+		case *ssa.Return, *ssa.Panic:
 		case *ssa.If:
 			state1 := state.Copy()
 			state1.Statement = block.Succs[0].Instrs[0]
