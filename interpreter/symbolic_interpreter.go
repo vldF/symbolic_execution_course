@@ -669,25 +669,38 @@ func visitCallInstr(call *ssa.Call, state *State, ctx *Context) []*State {
 func visitFunctionCall(call *ssa.Call, state *State, ctx *Context) *State {
 	function := call.Call.Value.(*ssa.Function)
 
+	if isOverriddenFunctionCall(call) {
+		return visitOverriddenFunctionCall(call, state, ctx)
+	}
+
 	switch function.Object().Name() {
 	case "Assume":
 		return visitAssumeFunctionCall(call, state, ctx)
 	case "MakeSymbolic":
 		return visitMakeSymbolicFunctionCall(call, state, ctx)
 	default:
-		newState := state.Copy()
-		newState.PushStackFrame(call)
-
-		functionArgs := function.Signature.Params()
-		for i := range functionArgs.Len() {
-			arg := functionArgs.At(i)
-			saveToStack(arg.Name(), visitValue(call.Call.Args[i], state, ctx), newState)
-		}
-
-		newState.Statement = function.Blocks[0].Instrs[0]
-
-		return newState
+		return visitRealFunctionCall(call, call.Call.Args, state, ctx, function)
 	}
+}
+
+func visitRealFunctionCall(
+	initiator *ssa.Call,
+	args []ssa.Value,
+	state *State, ctx *Context,
+	function *ssa.Function,
+) *State {
+	newState := state.Copy()
+	newState.PushStackFrame(initiator)
+
+	functionArgs := function.Signature.Params()
+	for i := range functionArgs.Len() {
+		arg := functionArgs.At(i)
+		saveToStack(arg.Name(), visitValue(args[i], state, ctx), newState)
+	}
+
+	newState.Statement = function.Blocks[0].Instrs[0]
+
+	return newState
 }
 
 func visitAssumeFunctionCall(call *ssa.Call, state *State, ctx *Context) *State {
@@ -722,6 +735,25 @@ func visitMakeSymbolicFunctionCall(call *ssa.Call, state *State, ctx *Context) *
 	saveToStack(name, val, newState)
 
 	return newState
+}
+
+var overriddenFunctions = map[string]string{
+	"math.Sqrt": "math_Sqrt",
+}
+
+func isOverriddenFunctionCall(call *ssa.Call) bool {
+	funcName := call.Call.Value.(*ssa.Function).String()
+	_, ok := overriddenFunctions[funcName]
+
+	return ok
+}
+
+func visitOverriddenFunctionCall(call *ssa.Call, state *State, ctx *Context) *State {
+	originalFuncName := call.Call.Value.(*ssa.Function).String()
+	overriddenFuncName := overriddenFunctions[originalFuncName]
+	overriddenFunc := call.Parent().Package().Func(overriddenFuncName)
+
+	return visitRealFunctionCall(call, call.Call.Args, state, ctx, overriddenFunc)
 }
 
 func visitFieldAddr(casted *ssa.FieldAddr, state *State, ctx *Context) Value {
