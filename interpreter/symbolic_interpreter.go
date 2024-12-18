@@ -142,6 +142,10 @@ func addInitState(function *ssa.Function, ctx *Context) {
 		initialFrame.Values[name] = val
 	}
 
+	mocker := &Mocker{
+		history: make(map[string][]MockDescriptor),
+	}
+
 	initState := &State{
 		Priority:           0,
 		Constraints:        constraints,
@@ -149,6 +153,7 @@ func addInitState(function *ssa.Function, ctx *Context) {
 		Statement:          entry.Instrs[0],
 		VisitedBasicBlocks: []int{entry.Index},
 		Memory:             memory,
+		Mocker:             mocker,
 	}
 
 	ctx.States.Insert(initState)
@@ -671,14 +676,11 @@ func visitFunctionCall(call *ssa.Call, state *State, ctx *Context) *State {
 
 	if isOverriddenFunctionCall(call) {
 		return visitOverriddenFunctionCall(call, state, ctx)
-	}
-
-	switch function.Object().Name() {
-	case "Assume":
-		return visitAssumeFunctionCall(call, state, ctx)
-	case "MakeSymbolic":
-		return visitMakeSymbolicFunctionCall(call, state, ctx)
-	default:
+	} else if isIntrinsicFunctionCall(call) {
+		return visitIntrinsicFunctionCall(call, state, ctx)
+	} else if function.Package().Pkg.Name() != ctx.Config.MainPackage {
+		return visitMockFunctionCall(call, state, ctx, function)
+	} else {
 		return visitRealFunctionCall(call, call.Call.Args, state, ctx, function)
 	}
 }
@@ -754,6 +756,46 @@ func visitOverriddenFunctionCall(call *ssa.Call, state *State, ctx *Context) *St
 	overriddenFunc := call.Parent().Package().Func(overriddenFuncName)
 
 	return visitRealFunctionCall(call, call.Call.Args, state, ctx, overriddenFunc)
+}
+
+var intrinsicFunctions = []string{
+	"Assume", "MakeSymbolic",
+}
+
+func isIntrinsicFunctionCall(call *ssa.Call) bool {
+	funcName := call.Call.Value.(*ssa.Function).Object().Name()
+	return slices.Contains(intrinsicFunctions, funcName)
+}
+
+func visitIntrinsicFunctionCall(call *ssa.Call, state *State, ctx *Context) *State {
+	function := call.Call.Value.(*ssa.Function)
+	switch function.Object().Name() {
+	case "Assume":
+		return visitAssumeFunctionCall(call, state, ctx)
+	case "MakeSymbolic":
+		return visitMakeSymbolicFunctionCall(call, state, ctx)
+	default:
+		panic("Unknown intrinsic")
+	}
+}
+
+func visitMockFunctionCall(
+	call *ssa.Call,
+	state *State,
+	ctx *Context,
+	function *ssa.Function,
+) *State {
+	newState := state.Copy()
+
+	symbolType := call.Type()
+	name := call.Name()
+	tpe := call.Type()
+	val := newValueOfType(ctx, symbolType.Underlying(), state.Memory, name)
+	saveToStack(name, val, newState)
+
+	newState.Mocker.Add(function.String(), val, newState.Memory, tpe)
+
+	return newState
 }
 
 func visitFieldAddr(casted *ssa.FieldAddr, state *State, ctx *Context) Value {

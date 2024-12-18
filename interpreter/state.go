@@ -11,6 +11,7 @@ type State struct {
 	Statement          ssa.Instruction
 	VisitedBasicBlocks []int
 	Memory             *Memory
+	Mocker             *Mocker
 }
 
 type StackFrame struct {
@@ -44,12 +45,15 @@ func (state *State) Copy() *State {
 
 	newMemory := state.Memory.Copy()
 
+	newMocker := state.Mocker.Copy()
+
 	return &State{
 		Constraints:        constraints,
 		StackFrames:        newFrames,
 		Statement:          state.Statement,
 		VisitedBasicBlocks: blocks,
 		Memory:             newMemory,
+		Mocker:             newMocker,
 	}
 }
 

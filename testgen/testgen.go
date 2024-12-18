@@ -15,7 +15,10 @@ import (
 func GenerateTests(function *ssa.Function) []string {
 	result := make([]string, 0)
 
-	config := interpreter.InterpreterConfig{PathSelectorMode: interpreter.DFS}
+	config := interpreter.InterpreterConfig{
+		PathSelectorMode: interpreter.DFS,
+		MainPackage:      function.Package().Pkg.Name(),
+	}
 	dynamicInterpreterCtx := interpreter.Interpret(function, config)
 
 	initState := dynamicInterpreterCtx.InitState
@@ -31,11 +34,25 @@ func GenerateTests(function *ssa.Function) []string {
 
 	resultStates := dynamicInterpreterCtx.Results
 	for i, resultState := range resultStates {
+		solver.Reset()
+
+		for _, c := range resultState.Constraints {
+			solver.Assert(c.AsZ3Value().Value.(z3.Bool))
+		}
+
+		ok, err := solver.Check()
+		if !ok {
+			println(err)
+			continue
+		}
+
+		model := solver.Model()
+
 		args, err := getArgsByState(
 			resultState,
 			initState,
 			dynamicInterpreterCtx,
-			solver,
+			model,
 			functionArgNames,
 			functionArgTypes,
 		)
@@ -44,7 +61,14 @@ func GenerateTests(function *ssa.Function) []string {
 			return nil
 		}
 
-		result = append(result, getTestCode(function.Package().Pkg.Path(), function.Name(), i, args))
+		arrangeCode := getArrangeCode(resultState, dynamicInterpreterCtx, model)
+
+		funcPackage := function.Package().Pkg.Path()
+		funcName := function.Name()
+		assertCode := getFunctionCallString(funcPackage, funcName, args)
+
+		fullTestCode := getTestCode(funcName, i, arrangeCode, assertCode)
+		result = append(result, fullTestCode)
 	}
 
 	return result
@@ -54,23 +78,10 @@ func getArgsByState(
 	state *interpreter.State,
 	initState *interpreter.State,
 	ctx *interpreter.Context,
-	solver *z3.Solver,
+	model *z3.Model,
 	args []string,
 	artTypes []types.Type,
 ) ([]string, error) {
-	solver.Reset()
-
-	for _, c := range state.Constraints {
-		solver.Assert(c.AsZ3Value().Value.(z3.Bool))
-	}
-
-	ok, err := solver.Check()
-	if !ok {
-		println(err)
-		return nil, err
-	}
-
-	model := solver.Model()
 
 	result := make([]string, 0)
 	for i, arg := range args {
@@ -78,27 +89,57 @@ func getArgsByState(
 
 		argValue := initState.GetValueFromStack(arg)
 		z3Value := model.Eval(argValue.AsZ3Value().Value, true)
-		goValue := GetArg(state, ctx, model, z3Value, argType)
+		goValue := GetConcreteValue(state.Memory, ctx, model, z3Value, argType)
 		result = append(result, goValue.String())
 	}
 
 	return result, nil
 }
 
-func GetArg(
-	resultState *interpreter.State,
+func getArrangeCode(
+	state *interpreter.State,
 	ctx *interpreter.Context,
 	model *z3.Model,
-	value z3.Value,
-	argType types.Type,
-) fmt.Stringer {
-	memory := resultState.Memory
+) string {
+	mockedValues := state.Mocker.GetAll()
+	if mockedValues == nil || len(mockedValues) == 0 {
+		return ""
+	}
 
-	switch argType := argType.(type) {
+	var result strings.Builder
+	for funcName, values := range mockedValues {
+		for i, descriptor := range values {
+			z3Value := descriptor.Value.AsZ3Value().Value
+			mem := descriptor.Memory
+			typ := descriptor.Type
+
+			result.WriteString("    // ")
+			result.WriteString("mock needed: ")
+			result.WriteString(funcName)
+			result.WriteString("(...)")
+			result.WriteString("#")
+			result.WriteString(strconv.Itoa(i))
+			result.WriteString(": ")
+			result.WriteString(GetConcreteValue(mem, ctx, model, z3Value, typ).String())
+			result.WriteString("\n")
+		}
+	}
+
+	return result.String()
+}
+
+func GetConcreteValue(
+	memory *interpreter.Memory,
+	ctx *interpreter.Context,
+	model *z3.Model,
+	symbolicValue z3.Value,
+	valueType types.Type,
+) fmt.Stringer {
+	switch argType := valueType.(type) {
 	case *types.Basic:
 		switch argType.Kind() {
 		case types.Bool:
-			val, isLiteral := value.(z3.Bool).AsBool()
+			val, isLiteral := symbolicValue.(z3.Bool).AsBool()
 			if isLiteral {
 				switch {
 				case val:
@@ -107,28 +148,28 @@ func GetArg(
 					return &PrimitiveArgument{stringValue: "false"}
 				}
 			}
-			panic("non-literal value")
+			panic("non-literal symbolicValue")
 
 		case types.Float32, types.Float64:
-			v := model.Eval(value, true)
+			v := model.Eval(symbolicValue, true)
 			val, isLiteral := v.(z3.Float).AsBigFloat()
 			if isLiteral {
 				return floatAsArg(val)
 			}
-			panic("non-literal value")
+			panic("non-literal symbolicValue")
 		case types.Int, types.Int8, types.Int16, types.Int32, types.Int64:
-			v := model.Eval(value, true)
+			v := model.Eval(symbolicValue, true)
 			val, isLiteral, _ := v.(z3.BV).AsInt64()
 			if isLiteral {
 				return &PrimitiveArgument{stringValue: fmt.Sprintf("%d", val)}
 			}
-			panic("non-literal value")
+			panic("non-literal symbolicValue")
 		case types.String:
 			return &PrimitiveArgument{stringValue: "\"unsupported\""}
 		case types.Complex64, types.Complex128:
 			ptrValue := &interpreter.Z3Value{
 				Context: ctx,
-				Value:   value,
+				Value:   symbolicValue,
 				Bits:    64,
 			}
 
@@ -146,17 +187,17 @@ func GetArg(
 				}
 			}
 
-			panic("non-literal value")
+			panic("non-literal symbolicValue")
 		default:
 			panic("unsupported basic type " + argType.String())
 		}
 	case *types.Pointer:
-		return &PointerArgument{innerArgument: GetArg(resultState, ctx, model, value, argType.Elem())}
+		return &PointerArgument{innerArgument: GetConcreteValue(memory, ctx, model, symbolicValue, argType.Elem())}
 	case *types.Slice:
 		elemType := argType.Elem()
 		ptrValue := &interpreter.Z3Value{
 			Context: ctx,
-			Value:   value,
+			Value:   symbolicValue,
 			Bits:    64,
 		}
 		elemTypeName := elemType.String()
@@ -175,7 +216,7 @@ func GetArg(
 		for i := range arrayLen {
 			indexValue := ctx.CreateInt(i, 64)
 			elementSymbolicValue := memory.LoadByArrayIndex(arrayPtr, indexValue).AsZ3Value().Value
-			arrayElements[i] = GetArg(resultState, ctx, model, elementSymbolicValue, elemType)
+			arrayElements[i] = GetConcreteValue(memory, ctx, model, elementSymbolicValue, elemType)
 		}
 
 		return &ArrayArgument{elementType: elemType.String(), values: arrayElements}
@@ -192,13 +233,13 @@ func GetArg(
 				fieldType := field.Type()
 				valueValue := &interpreter.Z3Value{
 					Context: ctx,
-					Value:   value,
+					Value:   symbolicValue,
 					Bits:    64,
 				}
 				structPtrValuePtr := memory.GetUnsafePointerToField(valueValue, fieldI, argTypeName)
 				structPtrValue := memory.Load(structPtrValuePtr).AsZ3Value().Value
 
-				elements[fieldName] = GetArg(resultState, ctx, model, structPtrValue, fieldType)
+				elements[fieldName] = GetConcreteValue(memory, ctx, model, structPtrValue, fieldType)
 			}
 
 			return &StructArgument{
@@ -228,14 +269,23 @@ func floatAsArg(float *big.Float) *PrimitiveArgument {
 	return &PrimitiveArgument{stringValue: fmt.Sprintf("%E", valAsFloat)}
 }
 
-func getTestCode(funcPackage string, funcName string, suffix int, args []string) string {
+func getTestCode(
+	funcName string,
+	suffix int,
+	arrangeCode string,
+	assertCode string,
+) string {
 	var sb strings.Builder
 	sb.WriteString("func Test")
 	sb.WriteString(funcName)
 	sb.WriteString("_" + strconv.Itoa(suffix))
 	sb.WriteString("(t *testing.T) {\n")
-	sb.WriteString("  ")
-	sb.WriteString(getFunctionCallString(funcPackage, funcName, args))
+	if len(arrangeCode) != 0 {
+		sb.WriteString(arrangeCode)
+		sb.WriteString("\n")
+	}
+	sb.WriteString("    ")
+	sb.WriteString(assertCode)
 	sb.WriteString("\n")
 	sb.WriteString("}")
 
@@ -245,7 +295,7 @@ func getTestCode(funcPackage string, funcName string, suffix int, args []string)
 func getFunctionCallString(funcPackage string, funcName string, args []string) string {
 	var sb strings.Builder
 
-	sb.WriteString(funcPackage)
+	sb.WriteString("target")
 	sb.WriteString(".")
 	sb.WriteString(funcName)
 	sb.WriteString("(")

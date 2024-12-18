@@ -82,7 +82,7 @@ func run(ctx context.Context, command *cli.Command) error {
 			return err
 		}
 
-		pkg := ssa2.FromFile(filepath.Join(baseDirPath, inf.Name()), outputPackage, intrinsicsPath)
+		pkg := ssa2.FromFile(filepath.Join(baseDirPath, inf.Name()), inputPackage, intrinsicsPath)
 
 		functions := getAllFunctions(pkg)
 		hasMathImport := false
@@ -106,10 +106,14 @@ func run(ctx context.Context, command *cli.Command) error {
 		targetFilePath := path.Join(targetDirPath, fileName+"_test.go")
 
 		var resultFileText strings.Builder
-		resultFileText.WriteString("package generated\n")
+		resultFileText.WriteString("package ")
+		resultFileText.WriteString(outputPackage)
+		resultFileText.WriteString("\n")
 		resultFileText.WriteString("\n")
 		resultFileText.WriteString("import (\n")
-		resultFileText.WriteString("    \"")
+		resultFileText.WriteString("    ")
+		resultFileText.WriteString("target ")
+		resultFileText.WriteString("\"")
 		resultFileText.WriteString(inputPackage)
 		resultFileText.WriteString("\"\n")
 		resultFileText.WriteString("    \"testing\"\n")

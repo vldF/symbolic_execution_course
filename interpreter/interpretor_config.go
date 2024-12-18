@@ -10,4 +10,5 @@ const (
 
 type InterpreterConfig struct {
 	PathSelectorMode PathSelectorMode
+	MainPackage      string
 }

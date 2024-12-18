@@ -228,7 +228,7 @@ func (self *Heap[T]) shiftDown(indicies ...int) {
 }
 
 /*
-Get the index of a node in the heap. Performance: O(n).
+GetAll the index of a node in the heap. Performance: O(n).
 */
 func (self *Heap[T]) Search(node T) int {
 	for index, n := range self.nodes {

@@ -87,7 +87,10 @@ func runAnalysisFor(fileName string, functionName string) *interpreter.Context {
 	intrinsicsPath := "../../testdata/analyzer_intrinsics.go"
 	ssa := ssa.FromCode(string(code), intrinsicsPath)
 	fun := ssa.Func(functionName)
-	config := interpreter.InterpreterConfig{PathSelectorMode: interpreter.NURS}
+	config := interpreter.InterpreterConfig{
+		PathSelectorMode: interpreter.NURS,
+		MainPackage:      "testdata",
+	}
 
 	println("function", functionName)
 	return interpreter.Interpret(fun, config)
