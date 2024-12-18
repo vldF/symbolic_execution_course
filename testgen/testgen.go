@@ -295,7 +295,7 @@ func getTestCode(
 func getFunctionCallString(funcPackage string, funcName string, args []string) string {
 	var sb strings.Builder
 
-	sb.WriteString("target")
+	sb.WriteString(funcPackage)
 	sb.WriteString(".")
 	sb.WriteString(funcName)
 	sb.WriteString("(")
