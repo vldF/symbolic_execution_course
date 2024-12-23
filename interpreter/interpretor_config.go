@@ -8,7 +8,15 @@ const (
 	NURS   PathSelectorMode = iota
 )
 
+type InterpretationMode int
+
+const (
+	Execution            InterpretationMode = iota
+	CoverageMaximization InterpretationMode = iota
+)
+
 type InterpreterConfig struct {
 	PathSelectorMode PathSelectorMode
 	MainPackage      string
+	Mode             InterpretationMode
 }

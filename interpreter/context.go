@@ -14,6 +14,8 @@ type Context struct {
 	States       *heap.Heap[*State]
 	Results      []*State
 	InitState    *State
+
+	remainingBlocks map[int]bool
 }
 
 type TypesContext struct {

@@ -90,6 +90,7 @@ func runAnalysisFor(fileName string, functionName string) *interpreter.Context {
 	config := interpreter.InterpreterConfig{
 		PathSelectorMode: interpreter.NURS,
 		MainPackage:      "testdata",
+		Mode:             interpreter.Execution,
 	}
 
 	println("function", functionName)

@@ -18,6 +18,7 @@ func GenerateTests(function *ssa.Function) []string {
 	config := interpreter.InterpreterConfig{
 		PathSelectorMode: interpreter.DFS,
 		MainPackage:      function.Package().Pkg.Name(),
+		Mode:             interpreter.CoverageMaximization,
 	}
 	dynamicInterpreterCtx := interpreter.Interpret(function, config)
 

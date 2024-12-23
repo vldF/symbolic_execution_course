@@ -52,6 +52,8 @@ func Interpret(
 		TypesContext: &typesContext,
 		States:       states,
 		Results:      make([]*State, 0),
+
+		remainingBlocks: getAllBasicBlocks(function),
 	}
 
 	context.ReturnValue = getReturnConst(function, &context)
@@ -69,10 +71,36 @@ func Interpret(
 			continue
 		}
 
+		if needToStop(&context) {
+			println("everything looks processed, stop the machine")
+			break
+		}
+
 		processState(nextState, &context)
 	}
 
 	return &context
+}
+
+func needToStop(c *Context) bool {
+	switch c.Config.Mode {
+	case Execution:
+		return false
+	case CoverageMaximization:
+		if len(c.remainingBlocks) == 0 {
+			return true
+		}
+
+		for _, v := range c.remainingBlocks {
+			if v {
+				return false
+			}
+		}
+
+		return true
+	default:
+		panic("unknown mode")
+	}
 }
 
 func processState(state *State, ctx *Context) {
@@ -518,6 +546,10 @@ func handleDone(state *State, ctx *Context) {
 	fmt.Println("Stack:", state.LastStackFrame().Values)
 	fmt.Println("Constraints:", state.Constraints)
 	fmt.Println("Statement", state.Statement)
+
+	for _, blockIdx := range state.VisitedBasicBlocks {
+		ctx.remainingBlocks[blockIdx] = false
+	}
 }
 
 func visitValue(val ssa.Value, state *State, ctx *Context) Value {
