@@ -13,16 +13,8 @@ type Memory struct {
 	structures  map[sortPtr]*StructureDescriptor
 }
 
-type Pointer struct {
-	ctx              *Context
-	ptr              Value
-	sPtr             sortPtr
-	arrayElemSortPtr sortPtr
-}
-
 type StructureDescriptor struct {
 	fields map[int]sortPtr
-	types  map[int]string
 }
 
 var basePtrs = make(map[sortPtr]int)
@@ -119,7 +111,6 @@ func (mem *Memory) NewStruct(name string, fields map[int]string) {
 
 	structDescriptor := &StructureDescriptor{
 		fields: fieldsInDescriptor,
-		types:  typesInDescriptor,
 	}
 
 	mem.structures[structSortPtr] = structDescriptor
@@ -135,9 +126,6 @@ func (mem *Memory) StoreField(structPtr *Pointer, fieldIdx int, value Value) {
 	}
 
 	fieldSort := structDescr.fields[fieldIdx]
-	//if _, ok := mem.memoryLines[fieldSort]; !ok {
-	//	mem.initLineFor(fieldSort, )
-	//}
 
 	line := mem.memoryLines[fieldSort]
 	mem.memoryLines[fieldSort] = line.Store(structPtr.ptr.AsZ3Value().Value, value.AsZ3Value().Value)
@@ -155,9 +143,6 @@ func (mem *Memory) LoadField(structPtr *Pointer, fieldIdx int) Value {
 	}
 
 	fieldSort := structDescr.fields[fieldIdx]
-	//if _, ok := mem.memoryLines[fieldSort]; !ok {
-	//	mem.initLineFor(fieldSort)
-	//}
 	line := mem.memoryLines[fieldSort]
 
 	z3Value := line.Select(structPtr.ptr.AsZ3Value().Value)
@@ -197,38 +182,20 @@ func (mem *Memory) GetFieldPointer(structPtr *Pointer, fieldIdx int) Value {
 	}
 }
 
-func (mem *Memory) GetFieldType(structPtr *Pointer, fieldIdx int) string {
-	if _, ok := mem.structures[structPtr.sPtr]; !ok {
-		panic("unknown structure " + structPtr.sPtr)
-	}
-
-	structDescr := mem.structures[structPtr.sPtr]
-	return structDescr.types[fieldIdx]
-}
-
-func (mem *Memory) GetFieldCount(structPtr *Pointer) int {
-	if _, ok := mem.structures[structPtr.sPtr]; !ok {
-		panic("unknown structure " + structPtr.sPtr)
-	}
-
-	structDescr := mem.structures[structPtr.sPtr]
-	return len(structDescr.types)
-}
-
 func (mem *Memory) initMemoryWrapper() {
 	fields := make(map[int]string)
-	fields[0] = "arrays-pointer"
-	fields[1] = "array-len"
+	fields[0] = arrayPtrName
+	fields[1] = arrayLenName
 
-	mem.NewStruct("array-wrapper", fields)
+	mem.NewStruct(arrayWrapperName, fields)
 	arrSort := mem.ctx.Z3Context.ArraySort(mem.ctx.TypesContext.Pointer, mem.ctx.TypesContext.ArrayIndexSort)
-	mem.memoryLines["array-len"] = mem.ctx.Z3Context.FreshConst("array-len", arrSort).(z3.Array)
+	mem.memoryLines[sortPtr(arrayLenName)] = mem.ctx.Z3Context.FreshConst(arrayLenName, arrSort).(z3.Array)
 }
 
 func (mem *Memory) AllocateArray(elementType string, strictAllocate bool) *Pointer {
 	mem.initMemoryWrapper()
 
-	wrapperPtr := mem.NewPtr("array-wrapper")
+	wrapperPtr := mem.NewPtr(arrayWrapperName)
 	elementSortPtr := sortPtr(elementType)
 	elementsLineSortPtr := sortPtr("array-" + elementType)
 	wrapperPtr.arrayElemSortPtr = elementSortPtr
@@ -317,57 +284,6 @@ func (mem *Memory) GetArrayLen(arrayPtr *Pointer) Value {
 	return mem.LoadField(arrayPtr, 1)
 }
 
-func (ptr *Pointer) AsZ3Value() Z3Value {
-	return ptr.ptr.AsZ3Value()
-}
-
-func (ptr *Pointer) Eq(value Value) BoolValue {
-	switch value := value.(type) {
-	case *Pointer:
-		if ptr.sPtr != value.sPtr {
-			return &ConcreteBoolValue{
-				ptr.ctx,
-				false,
-			}
-		}
-
-		return ptr.ptr.Eq(value.ptr)
-	}
-
-	return &ConcreteBoolValue{
-		ptr.ctx,
-		false,
-	}
-}
-
-func (ptr *Pointer) NotEq(value Value) BoolValue {
-	return ptr.Eq(value).Not()
-}
-
-func (ptr *Pointer) IsFloat() bool {
-	return false
-}
-
-func (ptr *Pointer) IsInteger() bool {
-	return false
-}
-
-func (ptr *Pointer) IsBool() bool {
-	return false
-}
-
-func (ptr *Pointer) And(Value) Value {
-	panic("unsupported")
-}
-
-func (ptr *Pointer) Or(Value) Value {
-	panic("unsupported")
-}
-
-func (ptr *Pointer) Xor(Value) Value {
-	panic("unsupported")
-}
-
 func getTypeName(v Value) string {
 	switch castedValue := v.(type) {
 	case *ConcreteBoolValue:
@@ -412,8 +328,12 @@ func (mem *Memory) GetUnsafeArrayPointer(value Value, elementType string) *Point
 	ptr := &Pointer{
 		ctx:              mem.ctx,
 		ptr:              value,
-		sPtr:             "array-wrapper",
+		sPtr:             sortPtr(arrayWrapperName),
 		arrayElemSortPtr: sortPtr(elementType),
 	}
 	return ptr
 }
+
+var arrayWrapperName = "array-wrapper"
+var arrayLenName = "array-len"
+var arrayPtrName = "arrays-pointer"
