@@ -194,11 +194,11 @@ func newValueOfType(ctx *Context, tpe types.Type, memory *Memory, name string) V
 	case *types.Basic:
 		switch casted.Kind() {
 		case types.Complex128, types.Complex64, types.UntypedComplex:
-			typeName := "complex"
+			typeName := complexTypeName
 
 			fields := map[int]string{
-				0: "float64",
-				1: "float64",
+				0: floatTypeName,
+				1: floatTypeName,
 			}
 
 			memory.NewStruct(typeName, fields)
@@ -666,7 +666,7 @@ func complexBinOp(
 
 	resultRealVal, resultImagVal := op(leftReal, leftImag, rightReal, rightImag)
 
-	resultPtr := state.Memory.NewPtr("complex")
+	resultPtr := state.Memory.NewPtr(complexTypeName)
 	state.Memory.StoreField(resultPtr, 0, resultRealVal)
 	state.Memory.StoreField(resultPtr, 1, resultImagVal)
 
@@ -891,7 +891,7 @@ func visitConst(value *ssa.Const, ctx *Context, state *State) Value {
 		case types.Complex128:
 			compx := value.Complex128()
 			bits := ctx.TypesContext.Float64.Bits
-			ptr := state.Memory.NewPtr("complex")
+			ptr := state.Memory.NewPtr(complexTypeName)
 			state.Memory.StoreField(ptr, 0, ctx.CreateFloat(real(compx), bits))
 			state.Memory.StoreField(ptr, 1, ctx.CreateFloat(imag(compx), bits))
 
