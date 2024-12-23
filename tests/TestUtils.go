@@ -91,6 +91,7 @@ func runAnalysisFor(fileName string, functionName string) *interpreter.Context {
 		PathSelectorMode: interpreter.NURS,
 		MainPackage:      "testdata",
 		Mode:             interpreter.Execution,
+		MaxBasicBlocks:   100,
 	}
 
 	println("function", functionName)

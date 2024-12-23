@@ -66,7 +66,7 @@ func Interpret(
 			break
 		}
 
-		if len(nextState.VisitedBasicBlocks) > 100 {
+		if len(nextState.VisitedBasicBlocks) > context.Config.MaxBasicBlocks {
 			println("potentially infinitive loop found, skip it")
 			continue
 		}

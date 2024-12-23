@@ -19,4 +19,5 @@ type InterpreterConfig struct {
 	PathSelectorMode PathSelectorMode
 	MainPackage      string
 	Mode             InterpretationMode
+	MaxBasicBlocks   int
 }

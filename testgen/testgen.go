@@ -12,13 +12,17 @@ import (
 	"symbolic_execution_course/interpreter"
 )
 
-func GenerateTests(function *ssa.Function) []string {
+func GenerateTests(
+	function *ssa.Function,
+	testGenConfig Config,
+) []string {
 	result := make([]string, 0)
 
 	config := interpreter.InterpreterConfig{
-		PathSelectorMode: interpreter.DFS,
+		PathSelectorMode: interpreter.PathSelectorMode(testGenConfig.PathSelectorMode),
 		MainPackage:      function.Package().Pkg.Name(),
 		Mode:             interpreter.CoverageMaximization,
+		MaxBasicBlocks:   testGenConfig.MaxBasicBlocks,
 	}
 	dynamicInterpreterCtx := interpreter.Interpret(function, config)
 

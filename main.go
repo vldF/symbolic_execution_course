@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"github.com/urfave/cli/v3"
 	"golang.org/x/tools/go/ssa"
 	"os"
@@ -44,6 +45,25 @@ func main() {
 				Required: false,
 				Usage:    "set a path to the intrinsics .go file",
 			},
+			&cli.IntFlag{
+				Name:     "maxBasicBlocks",
+				Required: false,
+				Usage:    "set a basic blocks count to detect infinity loops",
+				Value:    100,
+			},
+			&cli.StringFlag{
+				Name:     "pathSelector",
+				Required: false,
+				Usage:    "sel a path selector mode, one of Random, DFS or NURS",
+				Value:    "Random",
+				Validator: func(s string) error {
+					if s == "Random" || s == "DFS" || s == "NURS" {
+						return nil
+					} else {
+						return fmt.Errorf("invalid path selector: %s", s)
+					}
+				},
+			},
 		},
 
 		Action: run,
@@ -60,6 +80,15 @@ func run(ctx context.Context, command *cli.Command) error {
 	inputPackage := command.String("inputPackage")
 	outputPackage := command.String("outputPackage")
 	intrinsicsPath := command.String("intrinsicsPath")
+
+	maxBlocks := command.Int("maxBasicBlocks")
+	pathSelectorStr := command.String("pathSelector")
+	pathSelector := parsePathSelector(pathSelectorStr)
+
+	testGenConfig := testgen.Config{
+		MaxBasicBlocks:   int(maxBlocks),
+		PathSelectorMode: pathSelector,
+	}
 
 	err := os.RemoveAll(targetDirPath)
 	if err != nil {
@@ -88,7 +117,7 @@ func run(ctx context.Context, command *cli.Command) error {
 		hasMathImport := false
 		for _, functionName := range functions {
 			funcSsa := pkg.Func(functionName)
-			res := testgen.GenerateTests(funcSsa)
+			res := testgen.GenerateTests(funcSsa, testGenConfig)
 			for _, resMethod := range res {
 				if strings.Contains(resMethod, "math") {
 					hasMathImport = true
@@ -155,4 +184,17 @@ func getAllFunctions(pkg *ssa.Package) []string {
 	}
 
 	return result
+}
+
+func parsePathSelector(s string) testgen.PathSelectorMode {
+	switch s {
+	case "Random":
+		return testgen.Random
+	case "DFS":
+		return testgen.DFS
+	case "NURS":
+		return testgen.NURS
+	default:
+		panic("unknown path selector")
+	}
 }
