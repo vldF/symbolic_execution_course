@@ -515,14 +515,22 @@ func visitReturn(instr *ssa.Return, state *State, ctx *Context) *State {
 	newState.Statement = instr
 
 	frame := newState.LastStackFrame()
-	returnValue := visitValue(instr.Results[0], newState, ctx)
+	var returnValue Value
+	if len(instr.Results) != 0 {
+		returnValue = visitValue(instr.Results[0], newState, ctx)
+	} else {
+		returnValue = nil
+	}
+
 	if frame.Initiator == nil {
 		// return from the main function
-		switch castedReturnValue := returnValue.(type) {
-		case *Pointer:
-			newState.Constraints = append(newState.Constraints, ctx.ReturnValue.Eq(castedReturnValue.ptr))
-		default:
-			newState.Constraints = append(newState.Constraints, ctx.ReturnValue.Eq(returnValue))
+		if returnValue != nil {
+			switch castedReturnValue := returnValue.(type) {
+			case *Pointer:
+				newState.Constraints = append(newState.Constraints, ctx.ReturnValue.Eq(castedReturnValue.ptr))
+			default:
+				newState.Constraints = append(newState.Constraints, ctx.ReturnValue.Eq(returnValue))
+			}
 		}
 
 		handleDone(newState, ctx)
@@ -534,7 +542,10 @@ func visitReturn(instr *ssa.Return, state *State, ctx *Context) *State {
 	newState.Statement = frame.Initiator
 	newState = createPossibleNextStates(newState)[0]
 	newState.PopStackFrame()
-	saveToStack(frame.Initiator.Name(), returnValue, newState)
+
+	if returnValue != nil {
+		saveToStack(frame.Initiator.Name(), returnValue, newState)
+	}
 
 	return newState
 }
