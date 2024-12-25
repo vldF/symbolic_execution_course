@@ -523,22 +523,28 @@ func visitReturn(instr *ssa.Return, state *State, ctx *Context) *State {
 	}
 
 	if frame.Initiator == nil {
-		// return from the main function
-		if returnValue != nil {
-			switch castedReturnValue := returnValue.(type) {
-			case *Pointer:
-				newState.Constraints = append(newState.Constraints, ctx.ReturnValue.Eq(castedReturnValue.ptr))
-			default:
-				newState.Constraints = append(newState.Constraints, ctx.ReturnValue.Eq(returnValue))
-			}
-		}
-
-		handleDone(newState, ctx)
-
-		return nil
+		return visitReturnFromMainFunc(returnValue, newState, ctx)
 	}
 
-	// return from the function call
+	return visitReturnFromInnerFunc(newState, frame, returnValue)
+}
+
+func visitReturnFromMainFunc(returnValue Value, newState *State, ctx *Context) *State {
+	if returnValue != nil {
+		switch castedReturnValue := returnValue.(type) {
+		case *Pointer:
+			newState.Constraints = append(newState.Constraints, ctx.ReturnValue.Eq(castedReturnValue.ptr))
+		default:
+			newState.Constraints = append(newState.Constraints, ctx.ReturnValue.Eq(returnValue))
+		}
+	}
+
+	handleDone(newState, ctx)
+
+	return nil
+}
+
+func visitReturnFromInnerFunc(newState *State, frame *StackFrame, returnValue Value) *State {
 	newState.Statement = frame.Initiator
 	newState = createPossibleNextStates(newState)[0]
 	newState.PopStackFrame()
